@@ -1,0 +1,23 @@
+{
+  "name": "carwash-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:mobile\" \"npm run dev:admin\"",
+    "dev:mobile": "cd apps/mobile && npm start",
+    "dev:admin": "cd apps/admin && npm run dev",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "codegen": "npx convex codegen",
+    "deploy": "npx convex deploy"
+  },
+  "dependencies": {
+    "convex": "^1.35.1",
+    "stripe": "^22.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "concurrently": "^8.2.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  }
+}

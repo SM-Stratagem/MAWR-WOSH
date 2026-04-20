@@ -25,10 +25,11 @@ export default function HomeScreen() {
   const [selectedWashForModal, setSelectedWashForModal] = useState<typeof washTypes[0] | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  const setBookingData = useBookingStore();
+  const { setBookingData } = useBookingStore();
 
-  const cars = useQuery("cars:listMyCars") || [];
-  const addresses = useQuery("addresses:listMyAddresses") || [];
+  const cars = useQuery("cars:listMyCars" as any) || [];
+  const addresses = useQuery("addresses:listMyAddresses" as any) || [];
+  const dbWashTypes = useQuery("washTypes:listWashTypes" as any) || [];
   const defaultAddress = addresses.find((a: any) => a.isDefault) || addresses[0];
 
   const handleCarToggle = (carId: string) => {
@@ -42,6 +43,9 @@ export default function HomeScreen() {
   const handleContinue = () => {
     if (!selectedWashType || selectedCars.length === 0) return;
 
+    // Find the database wash type to get the actual ID
+    const dbWashType = dbWashTypes.find((w: any) => w.key === selectedWashType.key);
+
     setBookingData({
       selectedCarIds: selectedCars,
       selectedWashType: {
@@ -49,6 +53,7 @@ export default function HomeScreen() {
         name: selectedWashType.name,
         basePrice: selectedWashType.basePrice,
         durationMins: selectedWashType.durationMins,
+        washTypeId: dbWashType?._id, // Store the database ID for later
       },
       total: selectedWashType.basePrice * selectedCars.length,
     });

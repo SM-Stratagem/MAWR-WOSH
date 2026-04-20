@@ -7,6 +7,7 @@ interface BookingState {
     name: string;
     basePrice: number;
     durationMins: number;
+    washTypeId?: string;
   } | null;
   selectedAddressId: string | null;
   subscriptionPlan: "weekly" | "biweekly" | "monthly" | "one_time" | null;

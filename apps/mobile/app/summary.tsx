@@ -29,12 +29,14 @@ export default function SummaryScreen() {
     reset 
   } = booking;
   
-  const cars = useQuery("cars:listMyCars") || [];
-  const addresses = useQuery("addresses:listMyAddresses") || [];
+  const cars = useQuery("cars:listMyCars" as any) || [];
+  const addresses = useQuery("addresses:listMyAddresses" as any) || [];
+  const washTypes = useQuery("washTypes:listWashTypes" as any) || [];
   const selectedCars = cars.filter((c: any) => selectedCarIds.includes(c._id));
   const selectedAddress = addresses.find((a: any) => a._id === selectedAddressId);
+  const washTypeDoc = washTypes.find((w: any) => w.key === selectedWashType?.key);
   
-  const createBooking = useMutation("bookings:createBookingDraft");
+  const createBooking = useMutation("bookings:createBookingDraft" as any);
   
   const hasCar = selectedCars.length > 0;
   const hasLocation = !!selectedAddress;
@@ -71,12 +73,17 @@ export default function SummaryScreen() {
     
     setLoading(true);
     try {
+      // Use stored washTypeId if available, otherwise find from query
+      const washTypeIdToUse = (selectedWashType as any)?.washTypeId || washTypeDoc?._id;
+      
+      if (!washTypeIdToUse) {
+        throw new Error("Wash type not found");
+      }
+      
       const bookingId = await createBooking({
         addressId: selectedAddress._id,
-        washTypeId: selectedWashType.key,
+        washTypeId: washTypeIdToUse,
         carIds: selectedCarIds,
-        isSubscription: subscriptionPlan !== "one_time" && !!subscriptionPlan,
-        frequency: subscriptionPlan || "one_time",
       });
       
       setBookingData({ bookingId: bookingId as string });
