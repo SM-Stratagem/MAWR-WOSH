@@ -5,18 +5,15 @@ export const listMyCars = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    console.log("[Cars] listMyCars - identity:", identity ? "FOUND" : "NULL");
     if (!identity) return [];
 
     const clerkId = identity.subject;
-    console.log("[Cars] listMyCars - clerkId:", clerkId);
 
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
       .first();
 
-    console.log("[Cars] listMyCars - user:", user ? "FOUND" : "NOT FOUND");
     if (!user) return [];
 
     return await ctx.db
@@ -40,11 +37,8 @@ export const createCar = mutation({
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      console.error("[createCar] No identity found");
       throw new Error("Unauthorized - Please log in again");
     }
-
-    console.log("[createCar] Looking up user with clerkId:", identity.subject);
     
     const user = await ctx.db
       .query("users")
@@ -52,11 +46,8 @@ export const createCar = mutation({
       .first();
 
     if (!user) {
-      console.error("[createCar] User not found in database for clerkId:", identity.subject);
       throw new Error("User not found in database. Please try logging out and back in.");
     }
-    
-    console.log("[createCar] Found user:", user._id);
 
     const carId = await ctx.db.insert("cars", {
       userId: user._id,

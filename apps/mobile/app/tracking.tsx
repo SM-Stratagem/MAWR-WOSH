@@ -39,6 +39,8 @@ export default function TrackingScreen() {
   const statusIndex = STATUS_STEPS.findIndex((s) => s.key === booking.status);
   const isCompleted = booking.status === "completed";
   const isCanceled = booking.status === "canceled";
+  const isRejected = booking.status === "rejected";
+  const isBooked = booking.status === "booked";
 
   return (
     <View style={styles.container}>
@@ -79,7 +81,7 @@ export default function TrackingScreen() {
           </View>
         </View>
 
-        {!isCanceled && !isCompleted && (
+        {!isCanceled && !isCompleted && !isRejected && !isBooked && (
           <View style={styles.timeline}>
             <Text style={styles.sectionTitle}>Status</Text>
             {STATUS_STEPS.map((step, index) => {
@@ -119,6 +121,31 @@ export default function TrackingScreen() {
                 </View>
               );
             })}
+          </View>
+        )}
+
+        {isBooked && (
+          <View style={styles.pendingCard}>
+            <Text style={styles.pendingTitle}>Awaiting Confirmation</Text>
+            <Text style={styles.pendingText}>
+              Your booking is pending admin approval. You'll be notified once confirmed.
+            </Text>
+          </View>
+        )}
+
+        {isRejected && (
+          <View style={styles.rejectedCard}>
+            <Text style={styles.rejectedTitle}>Booking Rejected</Text>
+            {booking.rejectionReason ? (
+              <>
+                <Text style={styles.rejectedLabel}>Reason:</Text>
+                <Text style={styles.rejectedText}>{booking.rejectionReason}</Text>
+              </>
+            ) : (
+              <Text style={styles.rejectedText}>
+                This booking has been rejected by admin
+              </Text>
+            )}
           </View>
         )}
 
@@ -390,5 +417,48 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 16,
     fontWeight: "500",
+  },
+  pendingCard: {
+    backgroundColor: colors.warning + "20",
+    borderRadius: borderRadius.lg,
+    padding: spacing.xl,
+    alignItems: "center",
+    marginBottom: spacing.xl,
+  },
+  pendingTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: colors.warning,
+    marginBottom: spacing.sm,
+  },
+  pendingText: {
+    fontSize: 14,
+    color: colors.text_secondary,
+    textAlign: "center",
+  },
+  rejectedCard: {
+    backgroundColor: colors.error + "20",
+    borderRadius: borderRadius.lg,
+    padding: spacing.xl,
+    marginBottom: spacing.xl,
+  },
+  rejectedTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: colors.error,
+    marginBottom: spacing.md,
+    textAlign: "center",
+  },
+  rejectedLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.error,
+    marginBottom: spacing.xs,
+  },
+  rejectedText: {
+    fontSize: 14,
+    color: colors.text_primary,
+    textAlign: "center",
+    lineHeight: 20,
   },
 });

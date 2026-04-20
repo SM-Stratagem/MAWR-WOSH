@@ -15,18 +15,15 @@ export const getCurrentUserProfile = query({
   args: {},
   handler: async (ctx) => {
     const identity = await ctx.auth.getUserIdentity();
-    console.log("[Users] getCurrentUserProfile - identity:", identity ? "FOUND" : "NULL");
     if (!identity) return null;
 
     const clerkId = identity.subject;
-    console.log("[Users] getCurrentUserProfile - clerkId:", clerkId);
 
     const user = await ctx.db
       .query("users")
       .withIndex("by_clerk_id", (q) => q.eq("clerkId", clerkId))
       .first();
 
-    console.log("[Users] getCurrentUserProfile - user:", user ? "FOUND" : "NOT FOUND");
     return user;
   },
 });
@@ -208,6 +205,70 @@ export const seedAdmin = mutation({
     });
 
     console.log(`[Seed Admin] Created admin user ${args.email} with role: ${args.role}`);
+    return userId;
+  },
+});
+
+export const createAdminWithClerkId = mutation({
+  args: {
+    clerkId: v.string(),
+    email: v.string(),
+    name: v.string(),
+    role: v.union(v.literal("admin"), v.literal("superadmin")),
+  },
+  handler: async (ctx, args) => {
+    const existingByClerkId = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+
+    if (existingByClerkId) {
+      await ctx.db.patch(existingByClerkId._id, {
+        role: args.role,
+        isActive: true,
+        email: args.email,
+        name: args.name,
+      });
+      console.log(`[Create Admin] Updated existing user to role: ${args.role}`);
+      return existingByClerkId._id;
+    }
+
+    const existingByEmail = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", args.email))
+      .first();
+
+    if (existingByEmail) {
+      await ctx.db.patch(existingByEmail._id, {
+        clerkId: args.clerkId,
+        role: args.role,
+        isActive: true,
+        name: args.name,
+      });
+      console.log(`[Create Admin] Updated user by email to role: ${args.role}`);
+      return existingByEmail._id;
+    }
+
+    const userId = await ctx.db.insert("users", {
+      clerkId: args.clerkId,
+      email: args.email,
+      name: args.name,
+      role: args.role,
+      isActive: true,
+      createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+    });
+
+    await ctx.db.insert("activityLogs", {
+      actorUserId: userId,
+      actorRole: args.role,
+      entityType: "user",
+      entityId: userId.toString(),
+      action: "admin_created_with_clerk_id",
+      createdAt: Date.now(),
+    });
+
+    console.log(`[Create Admin] Created admin user ${args.email} with Clerk ID: ${args.clerkId}`);
     return userId;
   },
 });

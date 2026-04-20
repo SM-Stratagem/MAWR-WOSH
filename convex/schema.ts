@@ -61,6 +61,7 @@ export default defineSchema({
     washTypeId: v.id("washTypes"),
     status: v.union(
       v.literal("draft"),
+      v.literal("booked"),
       v.literal("awaiting_payment"),
       v.literal("confirmed"),
       v.literal("team_assigned"),
@@ -69,8 +70,10 @@ export default defineSchema({
       v.literal("washing_in_progress"),
       v.literal("completed"),
       v.literal("canceled"),
+      v.literal("rejected"),
       v.literal("payment_failed")
     ),
+    rejectionReason: v.optional(v.string()),
     selectedCarCount: v.number(),
     subtotal: v.number(),
     serviceFee: v.number(),

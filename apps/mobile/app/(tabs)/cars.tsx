@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,13 +10,22 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { useAuth } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useMutation, useQuery } from "convex/react";
+import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../../constants/theme";
 import { carMakes, carModels, carTrims, POPULAR_MAKES } from "../../constants/carData";
 import { UAE_REGIONS, getCodeOptions } from "../../constants/plateData";
 import UAELicensePlate from "../../components/UAELicensePlate";
 import SearchableSelect from "../../components/SearchableSelect";
+
+// SUV/Truck keywords to determine icon type
+const SUV_KEYWORDS = ['suv', 'truck', 'jeep', '4x4', '4wd', 'off-road', 'tank', 'defender', 'wrangler', 'bronco', 'gx', 'lx', 'land cruiser', 'prado', 'patrol', 'tahoe', 'suburban', 'escalade', 'navigator', 'range rover', 'sport', 'velar', 'discovery'];
+
+const isSUV = (make: string, model: string) => {
+  const fullName = `${make} ${model}`.toLowerCase();
+  return SUV_KEYWORDS.some(keyword => fullName.includes(keyword));
+};
 
 const CAR_COLORS = [
   { key: "white", label: "White" },
@@ -38,7 +47,8 @@ type FormStep = "make" | "model" | "trim" | "year" | "plate" | "color" | "review
 
 export default function CarsScreen() {
   const router = useRouter();
-  const { userId } = useAuth();
+  const { userId, isLoaded: isAuthLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
 
   const [showAddForm, setShowAddForm] = useState(false);
   const [step, setStep] = useState<FormStep>("make");
@@ -57,6 +67,8 @@ export default function CarsScreen() {
   const cars = useQuery("cars:listMyCars" as any) || [];
   const createCarMutation = useMutation("cars:createCar" as any);
   const deleteCarMutation = useMutation("cars:deleteCar" as any);
+  
+
 
   const models = useMemo(() => (make ? carModels[make] || [] : []), [make]);
   const trims = useMemo(() => (make && model ? carTrims[make]?.[model] || [] : []), [make, model]);
@@ -85,34 +97,44 @@ export default function CarsScreen() {
       return;
     }
     
-    if (!userId) {
+    if (!userId || !isSignedIn) {
       Alert.alert("Error", "You must be logged in to add a car");
       return;
     }
 
     try {
       setSaving(true);
+      
       const plateStr = `${plateCode} ${plateNumber}`;
-      console.log("[CarSave] Creating car with data:", {
-        make, model, year: Number(year), plateNumber: plateStr, plateRegion: plateCity.toLowerCase(), color, nickname: nickname || `${make} ${model}`
+
+      
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Request timed out - please check your connection")), 15000);
       });
-      await createCarMutation({
-        make,
-        model,
-        year: Number(year),
-        plateNumber: plateStr,
-        plateRegion: plateCity.toLowerCase(),
-        color: color || undefined,
-        nickname: nickname || `${make} ${model}`,
-      } as any);
+      
+      await Promise.race([
+        createCarMutation({
+          make,
+          model,
+          year: Number(year),
+          plateNumber: plateStr,
+          plateRegion: plateCity.toLowerCase(),
+          color: color || undefined,
+          nickname: nickname || `${make} ${model}`,
+        } as any),
+        timeoutPromise
+      ]);
+      
+
       setSaving(false);
       setShowAddForm(false);
       resetForm();
       Alert.alert("Success", "Car added successfully!");
     } catch (error: any) {
       setSaving(false);
-      console.error("[CarSave] Error creating car:", error);
-      Alert.alert("Error", error?.message || "Failed to add car. Please try logging out and back in.");
+
+      Alert.alert("Error", error?.message || "Failed to add car. Please check that:\n\n1. You're connected to the internet\n2. The Convex dev server is running (npx convex dev)\n3. Try logging out and back in");
     }
   };
 
@@ -520,9 +542,17 @@ export default function CarsScreen() {
           cars.map((car: any) => (
             <View key={car._id} style={styles.carCard}>
               <View style={styles.carHeader}>
-                <Text style={styles.carName}>
-                  {car.nickname || `${car.make} ${car.model}`}
-                </Text>
+                <View style={styles.carTitleRow}>
+                  <Ionicons 
+                    name={isSUV(car.make, car.model) ? "car-sport" : "car"} 
+                    size={24} 
+                    color={colors.primary}
+                    style={styles.carIcon}
+                  />
+                  <Text style={styles.carName}>
+                    {car.nickname || `${car.make} ${car.model}`}
+                  </Text>
+                </View>
                 <TouchableOpacity style={styles.deleteButton} onPress={() => handleDeleteCar(car._id)}>
                   <Text style={styles.deleteButtonText}>Delete</Text>
                 </TouchableOpacity>
@@ -531,17 +561,23 @@ export default function CarsScreen() {
                 <Text style={styles.detailText}>
                   {car.make} {car.model}
                   {car.year ? ` • ${car.year}` : ""}
-                  {car.trim ? ` • ${car.trim}` : ""}
                   {car.color ? ` • ${car.color}` : ""}
                 </Text>
               </View>
               {car.plateNumber && (
-                <View style={styles.plateContainer}>
-                  <UAELicensePlate
-                    city={car.plateRegion || "dubai"}
-                    code={car.plateNumber.substring(0, 3)}
-                    number={car.plateNumber.slice(-4)}
-                  />
+                <View style={styles.plateSection}>
+                  <View style={styles.plateHeader}>
+                    <Text style={styles.plateCityLabel}>
+                      {UAE_REGIONS.find(r => r.key === car.plateRegion)?.label || 'Dubai'}
+                    </Text>
+                  </View>
+                  <View style={styles.plateContainer}>
+                    <UAELicensePlate
+                      city={car.plateRegion || "dubai"}
+                      code={car.plateNumber.split(' ')[0] || ""}
+                      number={car.plateNumber.split(' ')[1] || car.plateNumber}
+                    />
+                  </View>
                 </View>
               )}
             </View>
@@ -695,4 +731,29 @@ const styles = StyleSheet.create({
   },
   reviewLabel: { fontSize: 14, color: colors.text_secondary, fontWeight: "500" },
   reviewValue: { fontSize: 14, color: colors.text_primary, fontWeight: "600" },
+  carTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+    marginRight: spacing.md,
+  },
+  carIcon: {
+    marginRight: spacing.sm,
+  },
+  plateSection: {
+    marginTop: spacing.md,
+    backgroundColor: colors.surface_container_high,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+  },
+  plateHeader: {
+    marginBottom: spacing.sm,
+  },
+  plateCityLabel: {
+    fontSize: 12,
+    color: colors.text_secondary,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
 });

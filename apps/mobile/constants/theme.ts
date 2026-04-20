@@ -77,6 +77,7 @@ export const subscriptionFrequencies = [
 
 export const bookingStatuses = {
   draft: { label: "Draft", color: colors.text_secondary },
+  booked: { label: "Booked", color: colors.warning },
   awaiting_payment: { label: "Awaiting Payment", color: colors.warning },
   confirmed: { label: "Confirmed", color: colors.primary },
   team_assigned: { label: "Team Assigned", color: colors.primary_container },
@@ -85,5 +86,6 @@ export const bookingStatuses = {
   washing_in_progress: { label: "Washing", color: colors.success },
   completed: { label: "Completed", color: colors.success },
   canceled: { label: "Canceled", color: colors.danger },
+  rejected: { label: "Rejected", color: colors.error },
   payment_failed: { label: "Payment Failed", color: colors.danger },
 };

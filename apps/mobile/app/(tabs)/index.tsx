@@ -205,7 +205,29 @@ export default function HomeScreen() {
         onBookNow={() => {
           setModalVisible(false);
           if (selectedWashForModal) {
+            // Find the database wash type to get the actual ID
+            const dbWashType = dbWashTypes.find((w: any) => w.key === selectedWashForModal.key);
+            
+            // Save wash type
             setSelectedWashType(selectedWashForModal);
+            
+            // Save to booking store with all necessary data
+            setBookingData({
+              selectedWashType: {
+                key: selectedWashForModal.key,
+                name: selectedWashForModal.name,
+                basePrice: selectedWashForModal.basePrice,
+                durationMins: selectedWashForModal.durationMins,
+                washTypeId: dbWashType?._id,
+              },
+              selectedCarIds: selectedCars,
+              total: selectedWashForModal.basePrice * selectedCars.length,
+            });
+            
+            // Save default address if available
+            if (defaultAddress) {
+              setBookingData({ selectedAddressId: defaultAddress._id });
+            }
           }
           router.push("/summary");
         }}

@@ -1,11 +1,19 @@
 import { useRouter } from "expo-router";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { useState, useCallback } from "react";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl } from "react-native";
 import { useQuery } from "convex/react";
 import { colors, spacing, borderRadius, bookingStatuses } from "../../constants/theme";
 
 export default function BookingsScreen() {
   const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
   const bookings = useQuery("bookings:listMyBookings" as any) || [];
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    // The query will automatically refetch
+    setTimeout(() => setRefreshing(false), 1000);
+  }, []);
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleDateString("en-US", {
@@ -25,7 +33,13 @@ export default function BookingsScreen() {
         <Text style={styles.title}>My Bookings</Text>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {bookings.length === 0 && (
           <View style={styles.empty}>
             <Text style={styles.emptyText}>No bookings yet</Text>
@@ -67,7 +81,22 @@ export default function BookingsScreen() {
               <Text style={styles.bookingDate}>{formatDate(booking.createdAt)}</Text>
             </View>
 
-            {booking.status !== "completed" && booking.status !== "canceled" && (
+            {/* Show rejection reason prominently */}
+            {booking.status === "rejected" && booking.rejectionReason && (
+              <View style={styles.rejectionBanner}>
+                <Text style={styles.rejectionLabel}>Rejection Reason:</Text>
+                <Text style={styles.rejectionText}>{booking.rejectionReason}</Text>
+              </View>
+            )}
+
+            {/* Show awaiting confirmation message */}
+            {booking.status === "booked" && (
+              <View style={styles.pendingBanner}>
+                <Text style={styles.pendingText}>Awaiting admin confirmation...</Text>
+              </View>
+            )}
+
+            {booking.status !== "completed" && booking.status !== "canceled" && booking.status !== "rejected" && (
               <View style={styles.trackButton}>
                 <Text style={styles.trackButtonText}>Track Order</Text>
               </View>
@@ -162,5 +191,36 @@ const styles = StyleSheet.create({
   trackButtonText: {
     color: colors.primary,
     fontWeight: "600",
+  },
+  rejectionBanner: {
+    marginTop: spacing.md,
+    backgroundColor: colors.error + "15",
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.error,
+  },
+  rejectionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.error,
+    marginBottom: spacing.xs,
+  },
+  rejectionText: {
+    fontSize: 14,
+    color: colors.text_primary,
+    lineHeight: 20,
+  },
+  pendingBanner: {
+    marginTop: spacing.md,
+    backgroundColor: colors.warning + "15",
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    alignItems: "center",
+  },
+  pendingText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.warning,
   },
 });

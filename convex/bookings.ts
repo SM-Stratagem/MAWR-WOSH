@@ -94,7 +94,7 @@ export const createBookingDraft = mutation({
       userId: user._id,
       addressId: args.addressId,
       washTypeId: args.washTypeId,
-      status: "draft",
+      status: "booked",
       selectedCarCount: carCount,
       subtotal,
       serviceFee,
@@ -118,7 +118,7 @@ export const createBookingDraft = mutation({
       actorRole: user.role,
       entityType: "booking",
       entityId: bookingId.toString(),
-      action: "draft_created",
+      action: "booked",
       createdAt: Date.now(),
     });
 
@@ -461,6 +461,93 @@ export const adminAssignTeam = mutation({
       payload: JSON.stringify({ teamId: args.teamId.toString(), teamName: team.name }),
       createdAt: Date.now(),
     });
+  },
+});
+
+export const adminConfirmBooking = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const adminUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+      .first();
+
+    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
+      throw new Error("Forbidden");
+    }
+
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    if (booking.status !== "booked") {
+      throw new Error("Can only confirm bookings with 'booked' status");
+    }
+
+    await ctx.db.patch(args.bookingId, {
+      status: "confirmed",
+      updatedAt: Date.now(),
+    });
+
+    await ctx.db.insert("activityLogs", {
+      actorUserId: adminUser._id,
+      actorRole: adminUser.role,
+      entityType: "booking",
+      entityId: args.bookingId.toString(),
+      action: "admin_confirmed",
+      createdAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+export const adminRejectBooking = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
+
+    const adminUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+      .first();
+
+    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
+      throw new Error("Forbidden");
+    }
+
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    if (booking.status !== "booked") {
+      throw new Error("Can only reject bookings with 'booked' status");
+    }
+
+    await ctx.db.patch(args.bookingId, {
+      status: "rejected",
+      rejectionReason: args.reason,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.db.insert("activityLogs", {
+      actorUserId: adminUser._id,
+      actorRole: adminUser.role,
+      entityType: "booking",
+      entityId: args.bookingId.toString(),
+      action: "admin_rejected",
+      payload: JSON.stringify({ reason: args.reason }),
+      createdAt: Date.now(),
+    });
+
+    return { success: true };
   },
 });
 
