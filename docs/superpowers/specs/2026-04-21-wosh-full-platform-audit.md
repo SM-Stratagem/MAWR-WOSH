@@ -27,7 +27,7 @@ Complete audit and implementation plan for a production-ready car wash booking p
 
 ## 2. User Flows - Complete End-to-End
 
-### 2.1 Customer Flow (No Payment - Confirm & Book)
+### 2.1 Customer Flow (No Payment - Auto Confirm)
 
 ```
 [STEP 1] Welcome Screen
@@ -44,8 +44,10 @@ Complete audit and implementation plan for a production-ready car wash booking p
         └── "Book Now" → Summary
         │
         ▼
-[STEP 4] Location Screen
+[STEP 4] Location Screen (Enhanced with Google Places Search)
+        ├── Search bar at top (Google Places autocomplete)
         ├── Map with draggable pin (auto-get current location)
+        ├── "Use current location" button
         ├── Save address form (address, apt/villa, building, street, notes)
         └── Save & Continue → Summary
         │
@@ -56,14 +58,13 @@ Complete audit and implementation plan for a production-ready car wash booking p
         ├── Edit address (modal picker)
         ├── View price breakdown (subtotal, discount, total)
         ├── Subscription label shown
-        └── "Confirm Booking" → Tracking
+        └── "Confirm Booking" → AUTO-CONFIRMED → Tracking
         │
         ▼
 [STEP 6] Tracking Screen
-        ├── Booking confirmed immediately (status: "booked" → "confirmed")
+        ├── Booking confirmed IMMEDIATELY (status: "confirmed")
         ├── Timeline: Confirmed → Team Assigned → On the Way → Arrived → Washing → Completed
-        ├── Rejection handling with reason shown
-        └── "Awaiting admin confirmation" banner if in "booked" state
+        └── No waiting for admin approval needed
 ```
 
 ### 2.2 Admin Flow
@@ -80,7 +81,7 @@ Complete audit and implementation plan for a production-ready car wash booking p
         │
         ▼
 [STEP 3] Bookings Management
-        ├── Filter by status (All / Booked / Confirmed / Team Assigned / etc.)
+        ├── Filter by status (All / Confirmed / Team Assigned / On the Way / etc.)
         ├── Search by booking number, customer name, plate
         ├── Click row → Detail modal
         │   ├── Customer info + contact
@@ -88,22 +89,22 @@ Complete audit and implementation plan for a production-ready car wash booking p
         │   ├── Address with map preview
         │   ├── Price breakdown
         │   └── Actions:
-        │       ├── If "booked": [Confirm] [Reject + reason]
-        │       ├── If "confirmed"+: [Update Status dropdown]
-        │       └── [Assign Team] (dropdown of available teams)
+        │       ├── [Assign Team] (dropdown of available teams)
+        │       └── [Update Status] (dropdown: team_assigned → on_the_way → arrived → washing → completed)
         │
         ▼
 [STEP 4] Dispatch Map (NEW)
         ├── Map showing all active booking locations (markers)
-        ├── Map showing team locations (when implemented)
+        ├── Map showing team locations with real-time GPS
+        ├── Search/filter bookings by area
         └── Click marker → booking details popup
         │
         ▼
 [STEP 5] Teams Management
-        ├── List all teams
+        ├── List all teams with current status
         ├── Add/Edit team (name, status: available/busy/offline)
         ├── View assigned bookings per team
-        └── (Future) GPS location tracking
+        └── Real-time GPS location per team (currentLat, currentLng)
         │
         ▼
 [STEP 6] Users Management
@@ -464,9 +465,20 @@ Need: Add wash types CRUD functions or extend existing ones
 
 ## 8. Open Questions / Decisions Needed
 
-1. **Team app auth:** Use Clerk like customer app, or simpler PIN-based for speed?
-2. **Booking confirm:** Auto-confirm on creation or require admin approval? (Current: requires approval - keeping that)
-3. **Map provider:** Google Maps or Mapbox for dispatch map?
+1. ~~Team app auth:~~ **Use Clerk** (secure, consistent with rest of app)
+2. ~~Map provider:~~ **Google Maps** with Places API for location search and draggable pin
+3. ~~Booking confirm:~~ **AUTO-CONFIRM** on creation (no admin approval needed)
+
+### Location Screen Enhancement
+**File:** `apps/mobile/app/location.tsx`
+
+The location screen shall support:
+1. **Search bar at top** - user can type address and autocomplete from Google Places
+2. **Draggable pin** - map shows current location with draggable marker for fine-tuning
+3. **Current location button** - quick button to center on GPS position
+4. **Form fields** below map - Full Address, Apt/Villa, Building/Community, Street, Notes
+
+Google Maps API key stored in `EXPO_PUBLIC_GOOGLE_MAPS_API_KEY`
 4. **Subscription charging:** For now subscriptions create bookings but don't charge. Is this acceptable until Stripe added?
 5. **Team location:** GPS tracking - implement now or later?
 
