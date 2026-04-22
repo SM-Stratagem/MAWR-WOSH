@@ -71,7 +71,7 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
-              name="payment"
+              name="confirm"
               options={{
                 gestureEnabled: true,
                 gestureDirection: "horizontal",

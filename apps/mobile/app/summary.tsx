@@ -7,11 +7,10 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  ActivityIndicator,
   Modal,
   Dimensions,
 } from "react-native";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery } from "convex/react";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../constants/theme";
 import { useBookingStore } from "../lib/store";
@@ -29,7 +28,6 @@ const isSUV = (make: string, model: string) => {
 
 export default function SummaryScreen() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
   const [showCarPicker, setShowCarPicker] = useState(false);
   const [showAddressPicker, setShowAddressPicker] = useState(false);
   const [showWashPicker, setShowWashPicker] = useState(false);
@@ -53,8 +51,6 @@ export default function SummaryScreen() {
   const selectedCars = cars.filter((c: any) => selectedCarIds.includes(c._id));
   const selectedAddress = addresses.find((a: any) => a._id === selectedAddressId);
   const washTypeDoc = washTypes.find((w: any) => w.key === selectedWashType?.key);
-  
-  const createBooking = useMutation("bookings:createBookingDraft" as any);
   
   const hasCar = selectedCars.length > 0;
   const hasLocation = !!selectedAddress;
@@ -103,7 +99,7 @@ export default function SummaryScreen() {
     router.push("/location");
   };
   
-  const handleConfirm = async () => {
+  const handleConfirm = () => {
     // Debug logging
     console.log("[Booking Debug] selectedCarIds:", selectedCarIds);
     console.log("[Booking Debug] selectedAddressId:", selectedAddressId);
@@ -123,39 +119,8 @@ export default function SummaryScreen() {
       return;
     }
     
-    setLoading(true);
-    try {
-      // Use stored washTypeId if available, otherwise find from query
-      const washTypeIdToUse = (selectedWashType as any)?.washTypeId || washTypeDoc?._id;
-      
-      console.log("[Booking Debug] washTypeIdToUse:", washTypeIdToUse);
-      console.log("[Booking Debug] Creating booking with:", {
-        addressId: selectedAddressId,
-        washTypeId: washTypeIdToUse,
-        carIds: selectedCarIds,
-      });
-      
-      if (!washTypeIdToUse) {
-        throw new Error("Wash type not found. Please try again.");
-      }
-      
-      const bookingId = await createBooking({
-        addressId: selectedAddressId,
-        washTypeId: washTypeIdToUse,
-        carIds: selectedCarIds,
-      });
-      
-      console.log("[Booking Debug] Booking created successfully:", bookingId);
-      
-      setBookingData({ bookingId: bookingId as string });
-      reset();
-      router.replace(`/tracking?bookingId=${bookingId}`);
-    } catch (error: any) {
-      console.error("[Booking Debug] Error creating booking:", error);
-      Alert.alert("Error", error.message || "Failed to create booking. Please try again.");
-    } finally {
-      setLoading(false);
-    }
+    // Navigate to confirm screen - booking will be created there
+    router.push("/confirm");
   };
   
   const subLabel = subscriptionPlans.find(p => p.key === subscriptionPlan)?.label || "One Time";
@@ -546,16 +511,12 @@ export default function SummaryScreen() {
         <TouchableOpacity
           style={[
             styles.confirmButton,
-            (!hasCar || !hasLocation || loading) && styles.confirmButtonDisabled,
+            (!hasCar || !hasLocation) && styles.confirmButtonDisabled,
           ]}
           onPress={handleConfirm}
-          disabled={!hasCar || !hasLocation || loading}
+          disabled={!hasCar || !hasLocation}
         >
-          {loading ? (
-            <ActivityIndicator color={colors.on_primary} />
-          ) : (
-            <Text style={styles.confirmButtonText}>Confirm Booking</Text>
-          )}
+          <Text style={styles.confirmButtonText}>Confirm Booking</Text>
         </TouchableOpacity>
       </View>
     </View>

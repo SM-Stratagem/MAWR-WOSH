@@ -94,14 +94,14 @@ export const createBookingDraft = mutation({
       userId: user._id,
       addressId: args.addressId,
       washTypeId: args.washTypeId,
-      status: "booked",
+      status: "confirmed", // AUTO-CONFIRM: no fake payment step
       selectedCarCount: carCount,
       subtotal,
       serviceFee,
       discount,
       total,
       currency: washType.currency,
-      paymentStatus: "pending",
+      paymentStatus: "succeeded", // Mark as paid (until Stripe integration)
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -118,7 +118,7 @@ export const createBookingDraft = mutation({
       actorRole: user.role,
       entityType: "booking",
       entityId: bookingId.toString(),
-      action: "booked",
+      action: "confirmed", // Auto-confirmed booking
       createdAt: Date.now(),
     });
 

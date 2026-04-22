@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -7,13 +7,25 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  FlatList,
+  Keyboard,
 } from "react-native";
 import { useRouter } from "expo-router";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery } from "convex/react";
 import { colors, spacing, borderRadius } from "../constants/theme";
 import { useBookingStore } from "../lib/store";
+
+interface PlacePrediction {
+  place_id: string;
+  description: string;
+  structured_formatting: {
+    main_text: string;
+    secondary_text: string;
+  };
+}
 
 export default function LocationScreen() {
   const router = useRouter();
@@ -31,9 +43,18 @@ export default function LocationScreen() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Google Places search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [predictions, setPredictions] = useState<PlacePrediction[]>([]);
+  const [showPredictions, setShowPredictions] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const { setBookingData } = useBookingStore();
   const createAddress = useMutation("addresses:createAddress" as any);
   const addresses = useQuery("addresses:listMyAddresses" as any) || [];
+
+  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
   useEffect(() => {
     (async () => {
@@ -59,6 +80,123 @@ export default function LocationScreen() {
       }
     })();
   }, []);
+
+  // Google Places Autocomplete
+  const searchPlaces = async (query: string) => {
+    if (!query || query.length < 3) {
+      setPredictions([]);
+      return;
+    }
+
+    if (!apiKey) {
+      console.warn("EXPO_PUBLIC_GOOGLE_MAPS_API_KEY not set");
+      return;
+    }
+
+    setSearching(true);
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&key=${apiKey}&components=country:ae&types=address`,
+        {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.status === "OK" && data.predictions) {
+        setPredictions(data.predictions.slice(0, 5));
+        setShowPredictions(true);
+      } else {
+        setPredictions([]);
+      }
+    } catch (error) {
+      console.error("Places search error:", error);
+      setPredictions([]);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleSearchChange = (text: string) => {
+    setSearchQuery(text);
+    setAddress(text);
+
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
+
+    searchTimeout.current = setTimeout(() => {
+      searchPlaces(text);
+    }, 500);
+  };
+
+  const selectPrediction = async (prediction: PlacePrediction) => {
+    setShowPredictions(false);
+    setSearchQuery(prediction.description);
+    setAddress(prediction.description);
+
+    // Get place details for coordinates
+    if (!apiKey) return;
+
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/place/details/json?place_id=${prediction.place_id}&key=${apiKey}`,
+        { method: "GET" }
+      );
+
+      const data = await response.json();
+
+      if (data.result?.geometry?.location) {
+        const { lat, lng } = data.result.geometry.location;
+        setRegion({
+          latitude: lat,
+          longitude: lng,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        });
+      }
+    } catch (error) {
+      console.error("Place details error:", error);
+    }
+  };
+
+  const handleCurrentLocation = async () => {
+    try {
+      const location = await Location.getCurrentPositionAsync({});
+      setRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    } catch (error) {
+      console.error("Current location error:", error);
+      Alert.alert("Error", "Could not get current location");
+    }
+  };
+
+  const reverseGeocode = async (lat: number, lng: number) => {
+    if (!apiKey) return;
+
+    try {
+      const response = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`,
+        { method: "GET" }
+      );
+
+      const data = await response.json();
+
+      if (data.results?.[0]?.formatted_address) {
+        const formatted = data.results[0].formatted_address;
+        setSearchQuery(formatted);
+        setAddress(formatted);
+      }
+    } catch (error) {
+      console.error("Reverse geocode error:", error);
+    }
+  };
 
   const handleSaveAddress = async (isDefault: boolean = true) => {
     if (!address) {
@@ -107,26 +245,78 @@ export default function LocationScreen() {
         <View style={{ width: 60 }} />
       </View>
 
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search" size={20} color={colors.text_secondary} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for an address..."
+            placeholderTextColor={colors.text_secondary}
+            value={searchQuery}
+            onChangeText={handleSearchChange}
+            onFocus={() => predictions.length > 0 && setShowPredictions(true)}
+            returnKeyType="search"
+          />
+          {searching && <ActivityIndicator size="small" color={colors.primary} />}
+        </View>
+
+        {showPredictions && predictions.length > 0 && (
+          <View style={styles.predictionsContainer}>
+            <FlatList
+              data={predictions}
+              keyExtractor={(item) => item.place_id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.predictionItem}
+                  onPress={() => selectPrediction(item)}
+                >
+                  <Ionicons name="location" size={16} color={colors.text_secondary} />
+                  <View style={styles.predictionText}>
+                    <Text style={styles.predictionMainText} numberOfLines={1}>
+                      {item.structured_formatting.main_text}
+                    </Text>
+                    <Text style={styles.predictionSecondaryText} numberOfLines={1}>
+                      {item.structured_formatting.secondary_text}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              keyboardShouldPersistTaps="handled"
+            />
+          </View>
+        )}
+      </View>
+
       <View style={styles.mapContainer}>
         <MapView
           style={styles.map}
           region={region}
-          onRegionChangeComplete={setRegion}
-          showsUserLocation
-          showsMyLocationButton
+          onRegionChangeComplete={(newRegion) => {
+            setRegion(newRegion);
+            reverseGeocode(newRegion.latitude, newRegion.longitude);
+          }}
+          showsUserLocation={false}
+          showsMyLocationButton={false}
         >
           <Marker
             coordinate={region}
             draggable
             onDragEnd={(e) => {
-              setRegion({
-                ...region,
+              const newRegion = {
                 latitude: e.nativeEvent.coordinate.latitude,
                 longitude: e.nativeEvent.coordinate.longitude,
-              });
+                latitudeDelta: 0.01,
+                longitudeDelta: 0.01,
+              };
+              setRegion(newRegion);
+              reverseGeocode(newRegion.latitude, newRegion.longitude);
             }}
           />
         </MapView>
+
+        <TouchableOpacity style={styles.locationButton} onPress={handleCurrentLocation}>
+          <Ionicons name="locate" size={24} color={colors.primary} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.form}>
@@ -135,7 +325,10 @@ export default function LocationScreen() {
           placeholder="Full Address *"
           placeholderTextColor={colors.text_secondary}
           value={address}
-          onChangeText={setAddress}
+          onChangeText={(text) => {
+            setAddress(text);
+            setSearchQuery(text);
+          }}
         />
 
         <View style={styles.row}>
@@ -262,5 +455,75 @@ const styles = StyleSheet.create({
     color: colors.on_primary,
     fontSize: 16,
     fontWeight: "600",
+  },
+  searchContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    zIndex: 1,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface_container_high,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    height: 48,
+  },
+  searchIcon: {
+    marginRight: spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: colors.text_primary,
+    height: "100%",
+  },
+  predictionsContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    marginTop: spacing.xs,
+    maxHeight: 200,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  predictionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surface_container_high,
+  },
+  predictionText: {
+    flex: 1,
+    marginLeft: spacing.sm,
+  },
+  predictionMainText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: colors.text_primary,
+  },
+  predictionSecondaryText: {
+    fontSize: 12,
+    color: colors.text_secondary,
+    marginTop: 2,
+  },
+  locationButton: {
+    position: "absolute",
+    bottom: spacing.md,
+    right: spacing.md,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.surface,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
 });
