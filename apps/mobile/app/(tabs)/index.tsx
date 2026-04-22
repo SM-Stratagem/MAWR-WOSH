@@ -25,7 +25,7 @@ export default function HomeScreen() {
   const [selectedWashForModal, setSelectedWashForModal] = useState<typeof washTypes[0] | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  const { setBookingData } = useBookingStore();
+  const { setBookingData, subscriptionPlan } = useBookingStore();
 
   const cars = useQuery("cars:listMyCars" as any) || [];
   const addresses = useQuery("addresses:listMyAddresses" as any) || [];
@@ -56,6 +56,7 @@ export default function HomeScreen() {
         washTypeId: dbWashType?._id, // Store the database ID for later
       },
       total: selectedWashType.basePrice * selectedCars.length,
+      subscriptionPlan: subscriptionPlan, // Save current subscription plan
     });
 
     if (defaultAddress) {
@@ -69,6 +70,18 @@ export default function HomeScreen() {
   const total = selectedWashType
     ? selectedWashType.basePrice * selectedCars.length
     : 0;
+
+  const getDiscountedTotal = () => {
+    if (!selectedWashType) return 0;
+    const base = selectedWashType.basePrice * selectedCars.length;
+    if (subscriptionPlan && subscriptionPlan !== "one_time") {
+      return Math.round(base * 0.85);
+    }
+    return base;
+  };
+
+  const displayTotal = getDiscountedTotal();
+  const hasDiscount = subscriptionPlan && subscriptionPlan !== "one_time";
 
   return (
     <View style={styles.container}>
@@ -171,16 +184,22 @@ export default function HomeScreen() {
 
       <View style={styles.footer}>
         <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Total</Text>
-          <Text style={styles.priceValue}>
-            {total} AED
+          <View>
+            <Text style={styles.priceLabel}>Total</Text>
+            {hasDiscount && (
+              <Text style={styles.discountLabel}>15% off applied</Text>
+            )}
+          </View>
+          <View style={styles.priceValueContainer}>
+            <Text style={styles.priceValue}>
+              {displayTotal} AED
+            </Text>
             {selectedCars.length > 1 && (
               <Text style={styles.priceBreakup}>
-                {" "}
                 ({selectedWashType?.basePrice} x {selectedCars.length})
               </Text>
             )}
-          </Text>
+          </View>
         </View>
         <TouchableOpacity
           style={[
@@ -222,6 +241,7 @@ export default function HomeScreen() {
               },
               selectedCarIds: selectedCars,
               total: selectedWashForModal.basePrice * selectedCars.length,
+              subscriptionPlan: subscriptionPlan, // Keep current subscription plan
             });
             
             // Save default address if available
@@ -457,5 +477,14 @@ const styles = StyleSheet.create({
     color: colors.on_primary,
     fontSize: 16,
     fontWeight: "600",
+  },
+  discountLabel: {
+    fontSize: 12,
+    color: colors.success,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  priceValueContainer: {
+    alignItems: "flex-end",
   },
 });
