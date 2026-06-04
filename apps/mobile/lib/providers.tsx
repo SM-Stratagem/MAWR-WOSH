@@ -1,76 +1,73 @@
-import { ConvexProviderWithAuth, ConvexReactClient, useMutation, useQuery } from "convex/react";
+import { ConvexProviderWithAuth, ConvexReactClient } from "convex/react";
 import { ClerkProvider, useAuth, useUser } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
-import { ReactNode, useEffect, useRef, useCallback } from "react";
+import { ReactNode, useRef, useCallback, useMemo, useEffect } from "react";
+import { useMutation } from "convex/react";
+import { api } from "../convex/_generated/api";
 
-const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
-  verbose: false, // Disable verbose logging
-});
+const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!);
 
-function ConvexAuthWrapper({ children }: { children: ReactNode }) {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+function useClerkAuth() {
+  const { isLoaded, isSignedIn, getToken } = useAuth();
+  const tokenRef = useRef<{ token: string | null; expires: number }>({ token: null, expires: 0 });
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
 
-  // Memoize the auth functions to prevent constant re-initialization
   const fetchAccessToken = useCallback(async () => {
-    const token = await getToken({ template: "convex" });
-    return token ?? null;
-  }, [getToken]);
+    if (!isLoaded || !isSignedIn) return null;
+    const now = Date.now();
+    if (tokenRef.current.token && now < tokenRef.current.expires) {
+      return tokenRef.current.token;
+    }
+    const token = await getTokenRef.current({ template: "convex" }).catch(() => null);
+    if (token) {
+      tokenRef.current = { token, expires: now + 5 * 60 * 1000 };
+    }
+    return token;
+  }, [isLoaded, isSignedIn]);
 
-  const authState = {
-    fetchAccessToken,
-    isAuthenticated: !!isSignedIn,
+  return useMemo(() => ({
     isLoading: !isLoaded,
-  };
-
-  return (
-    <ConvexProviderWithAuth
-      client={convex}
-      useAuth={() => authState}
-    >
-      {children}
-    </ConvexProviderWithAuth>
-  );
+    isAuthenticated: isLoaded && isSignedIn === true,
+    fetchAccessToken,
+  }), [isLoaded, isSignedIn, fetchAccessToken]);
 }
 
-function UserSync({ children }: { children: ReactNode }) {
-  const { isSignedIn, isLoaded } = useAuth();
+function UserSync() {
+  const { isLoaded, isSignedIn } = useAuth();
   const { user } = useUser();
-  const syncMutation = useMutation("users:syncUserFromClerk" as any);
-  const hasSynced = useRef(false);
-  const retryCount = useRef(0);
-  const isSyncing = useRef(false);
+  const ensureCurrentUser = useMutation(api.users.ensureCurrentUser);
+  const syncedUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    // Prevent concurrent syncs
-    if (isSyncing.current) return;
-    
-    if (isLoaded && isSignedIn && user && !hasSynced.current) {
-      isSyncing.current = true;
-      const email = user.emailAddresses?.[0]?.emailAddress || "";
-      const name = user.fullName || `${user.firstName || ""} ${user.lastName || ""}`.trim() || email;
-      const phone = user.phoneNumbers?.[0]?.phoneNumber;
-      
-      syncMutation({ clerkId: user.id, email, name, phone })
-        .then(() => {
-          hasSynced.current = true;
-          isSyncing.current = false;
-        })
-        .catch(() => {
-          retryCount.current += 1;
-          isSyncing.current = false;
-          if (retryCount.current >= 3) {
-            hasSynced.current = true; // Stop retrying after 3 attempts
-          }
-        });
-    }
     if (!isSignedIn) {
-      hasSynced.current = false;
-      retryCount.current = 0;
+      syncedUserIdRef.current = null;
+      return;
     }
-  // Only re-run when auth state changes, not when syncMutation reference changes
-  }, [isLoaded, isSignedIn, user?.id]);
+    if (!isLoaded || !isSignedIn || !user?.id) return;
+    if (!user.primaryEmailAddress?.emailAddress) return;
+    if (syncedUserIdRef.current === user.id) return;
 
-  return <>{children}</>;
+    let cancelled = false;
+
+    void ensureCurrentUser({
+      email: user.primaryEmailAddress.emailAddress,
+      name: user.fullName || user.firstName || user.username || user.primaryEmailAddress.emailAddress,
+      phone: user.primaryPhoneNumber?.phoneNumber,
+    }).then(() => {
+      if (!cancelled) {
+        syncedUserIdRef.current = user.id;
+      }
+    }).catch((error) => {
+      console.warn("[Auth Sync] Failed to sync mobile user", error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureCurrentUser, isLoaded, isSignedIn, user]);
+
+  return null;
 }
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -79,9 +76,10 @@ export function Providers({ children }: { children: ReactNode }) {
       publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
       tokenCache={tokenCache}
     >
-      <ConvexAuthWrapper>
-        <UserSync>{children}</UserSync>
-      </ConvexAuthWrapper>
+      <ConvexProviderWithAuth client={convex} useAuth={useClerkAuth}>
+        <UserSync />
+        {children}
+      </ConvexProviderWithAuth>
     </ClerkProvider>
   );
 }

@@ -13,10 +13,13 @@ import {
 import { useRouter } from "expo-router";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import * as Location from "expo-location";
+import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { colors, spacing, borderRadius } from "../constants/theme";
 import { useBookingStore } from "../lib/store";
+import { getUserFacingErrorMessage } from "../lib/errors";
 
 interface PlacePrediction {
   place_id: string;
@@ -49,12 +52,16 @@ export default function LocationScreen() {
   const [showPredictions, setShowPredictions] = useState(false);
   const [searching, setSearching] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reverseGeocodeTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastReverseGeocodeCoords = useRef<{ latitude: number; longitude: number } | null>(null);
 
   const { setBookingData } = useBookingStore();
-  const createAddress = useMutation("addresses:createAddress" as any);
-  const addresses = useQuery("addresses:listMyAddresses" as any) || [];
+  const createAddress = useMutation(api.addresses.createAddress);
+  const addresses = useQuery(api.addresses.listMyAddresses) || [];
 
-  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
+  const apiKey =
+    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    (Constants.expoConfig?.extra?.googleMapsApiKey as string | undefined);
 
   useEffect(() => {
     (async () => {
@@ -67,18 +74,27 @@ export default function LocationScreen() {
         }
 
         const location = await Location.getCurrentPositionAsync({});
-        setRegion({
+        const nextRegion = {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
-        });
+        };
+        setRegion(nextRegion);
+        scheduleReverseGeocode(nextRegion.latitude, nextRegion.longitude, 100);
       } catch (error) {
         console.error("Location error:", error);
       } finally {
         setLoading(false);
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (searchTimeout.current) clearTimeout(searchTimeout.current);
+      if (reverseGeocodeTimeout.current) clearTimeout(reverseGeocodeTimeout.current);
+    };
   }, []);
 
   // Google Places Autocomplete
@@ -102,6 +118,10 @@ export default function LocationScreen() {
           headers: { "Content-Type": "application/json" },
         }
       );
+
+      if (!response.ok) {
+        throw new Error(`Places search failed: ${response.status}`);
+      }
 
       const data = await response.json();
 
@@ -146,9 +166,13 @@ export default function LocationScreen() {
         { method: "GET" }
       );
 
+      if (!response.ok) {
+        throw new Error(`Place details failed: ${response.status}`);
+      }
+
       const data = await response.json();
 
-      if (data.result?.geometry?.location) {
+      if (data.status === "OK" && data.result?.geometry?.location) {
         const { lat, lng } = data.result.geometry.location;
         setRegion({
           latitude: lat,
@@ -165,12 +189,14 @@ export default function LocationScreen() {
   const handleCurrentLocation = async () => {
     try {
       const location = await Location.getCurrentPositionAsync({});
-      setRegion({
+      const nextRegion = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
-      });
+      };
+      setRegion(nextRegion);
+      scheduleReverseGeocode(nextRegion.latitude, nextRegion.longitude, 100);
     } catch (error) {
       console.error("Current location error:", error);
       Alert.alert("Error", "Could not get current location");
@@ -180,15 +206,28 @@ export default function LocationScreen() {
   const reverseGeocode = async (lat: number, lng: number) => {
     if (!apiKey) return;
 
+    const previous = lastReverseGeocodeCoords.current;
+    if (
+      previous &&
+      Math.abs(previous.latitude - lat) < 0.0001 &&
+      Math.abs(previous.longitude - lng) < 0.0001
+    ) {
+      return;
+    }
+
     try {
       const response = await fetch(
         `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`,
         { method: "GET" }
       );
+      if (!response.ok) {
+        throw new Error(`Reverse geocode failed: ${response.status}`);
+      }
 
       const data = await response.json();
+      lastReverseGeocodeCoords.current = { latitude: lat, longitude: lng };
 
-      if (data.results?.[0]?.formatted_address) {
+      if (data.status === "OK" && data.results?.[0]?.formatted_address) {
         const formatted = data.results[0].formatted_address;
         setSearchQuery(formatted);
         setAddress(formatted);
@@ -196,6 +235,15 @@ export default function LocationScreen() {
     } catch (error) {
       console.error("Reverse geocode error:", error);
     }
+  };
+
+  const scheduleReverseGeocode = (lat: number, lng: number, delay = 700) => {
+    if (reverseGeocodeTimeout.current) {
+      clearTimeout(reverseGeocodeTimeout.current);
+    }
+    reverseGeocodeTimeout.current = setTimeout(() => {
+      reverseGeocode(lat, lng);
+    }, delay);
   };
 
   const handleSaveAddress = async (isDefault: boolean = true) => {
@@ -220,7 +268,7 @@ export default function LocationScreen() {
       setBookingData({ selectedAddressId: addressId as string });
       router.back();
     } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to save address");
+      Alert.alert("Could not save address", getUserFacingErrorMessage(error, "Failed to save address. Please try again."));
     } finally {
       setSaving(false);
     }
@@ -287,13 +335,22 @@ export default function LocationScreen() {
         )}
       </View>
 
+      {!apiKey && (
+        <View style={styles.mapWarning}>
+          <Text style={styles.mapWarningText}>
+            Google Maps key is missing. Address search and map lookup are running in manual mode.
+          </Text>
+        </View>
+      )}
+
       <View style={styles.mapContainer}>
         <MapView
           style={styles.map}
+          provider={PROVIDER_GOOGLE}
           region={region}
           onRegionChangeComplete={(newRegion) => {
             setRegion(newRegion);
-            reverseGeocode(newRegion.latitude, newRegion.longitude);
+            scheduleReverseGeocode(newRegion.latitude, newRegion.longitude);
           }}
           showsUserLocation={false}
           showsMyLocationButton={false}
@@ -309,7 +366,7 @@ export default function LocationScreen() {
                 longitudeDelta: 0.01,
               };
               setRegion(newRegion);
-              reverseGeocode(newRegion.latitude, newRegion.longitude);
+              scheduleReverseGeocode(newRegion.latitude, newRegion.longitude, 100);
             }}
           />
         </MapView>
@@ -410,6 +467,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "600",
     color: colors.text_primary,
+  },
+  mapWarning: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.surface_container_high,
+  },
+  mapWarningText: {
+    color: colors.text_secondary,
+    fontSize: 12,
+    lineHeight: 16,
   },
   mapContainer: {
     height: "35%",

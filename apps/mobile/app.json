@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "WOSH",
+    "slug": "wosh-carwash",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "wosh",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -14,7 +14,14 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wosh.carwash",
+      "infoPlist": {
+        "NSCameraUsageDescription": "WOSH uses the camera to take photos of vehicles and locations for car wash bookings.",
+        "NSLocationWhenInUseUsageDescription": "WOSH uses your location to find nearby car wash services and assign teams.",
+        "NSLocationAlwaysUsageDescription": "WOSH uses your location to provide real-time updates on team arrival.",
+        "NSPhotoLibraryUsageDescription": "WOSH accesses your photos to upload images for car wash bookings."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +29,19 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.wosh.carwash",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -32,12 +51,27 @@
     "plugins": [
       "expo-router",
       ["@stripe/stripe-react-native", {
-        "merchantIdentifier": "merchant.com.yourapp",
+        "merchantIdentifier": "merchant.com.wosh.carwash",
         "publishableKey": "pk_test_placeholder"
       }],
       "expo-font",
       "expo-web-browser",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "WOSH accesses your photos to let you upload images for car wash bookings.",
+          "cameraPermission": "WOSH uses the camera to take photos of vehicles and locations."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "WOSH uses your location to find nearby car wash services and assign teams.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

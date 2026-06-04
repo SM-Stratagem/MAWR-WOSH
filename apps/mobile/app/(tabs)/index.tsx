@@ -1,5 +1,5 @@
 import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,44 +8,74 @@ import {
   ScrollView,
   Image,
 } from "react-native";
-import { useAuth, useUser } from "@clerk/clerk-expo";
-import { convex } from "../../lib/convex";
+import { useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
-import { colors, spacing, borderRadius, washTypes } from "../../constants/theme";
+import { Ionicons } from "@expo/vector-icons";
+import { api } from "../../convex/_generated/api";
+import { colors, spacing, borderRadius } from "../../constants/theme";
 import { useBookingStore } from "../../lib/store";
 import { WashDetailModal } from "../../components/WashDetailModal";
+
+function CarPhoto({ storageId }: { storageId: string }) {
+  const photoUrl = useQuery(api.cars.getPhotoUrl, { storageId });
+  if (!photoUrl) return null;
+  return (
+    <Image source={{ uri: photoUrl }} style={styles.carPhotoImage} />
+  );
+}
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useUser();
-  const { signOut } = useAuth();
   const [selectedCars, setSelectedCars] = useState<string[]>([]);
-  const [selectedWashType, setSelectedWashType] = useState<typeof washTypes[0] | null>(null);
-  const [isSubscription, setIsSubscription] = useState(false);
-  const [selectedWashForModal, setSelectedWashForModal] = useState<typeof washTypes[0] | null>(null);
+  const [selectedWashType, setSelectedWashType] = useState<any>(null);
+  const [selectedWashForModal, setSelectedWashForModal] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
   const { setBookingData, subscriptionPlan } = useBookingStore();
 
-  const cars = useQuery("cars:listMyCars" as any) || [];
-  const addresses = useQuery("addresses:listMyAddresses" as any) || [];
-  const dbWashTypes = useQuery("washTypes:listWashTypes" as any) || [];
+  const carsQuery = useQuery(api.cars.listMyCars);
+  const addressesQuery = useQuery(api.addresses.listMyAddresses);
+  const washTypesQuery = useQuery(api.washTypes.listWashTypes);
+
+  const cars = carsQuery || [];
+  const addresses = addressesQuery || [];
+  const dbWashTypes = washTypesQuery || [];
   const defaultAddress = addresses.find((a: any) => a.isDefault) || addresses[0];
+  const etaPreview = useQuery(
+    api.bookings.getEtaPreview,
+    defaultAddress ? { addressId: defaultAddress._id } : {}
+  );
+  const activeCar = cars.find((c: any) => selectedCars.includes(c._id)) || cars[0];
+
+  // Auto-select first car when cars load
+  useEffect(() => {
+    if (cars.length > 0 && selectedCars.length === 0) {
+      setSelectedCars([cars[0]._id]);
+    }
+  }, [cars]);
 
   const handleCarToggle = (carId: string) => {
     setSelectedCars((prev) =>
-      prev.includes(carId)
-        ? prev.filter((id) => id !== carId)
-        : [...prev, carId]
+      prev.includes(carId) ? prev.filter((id) => id !== carId) : [...prev, carId]
     );
+  };
+
+  const handleSelectWashType = (wash: any) => {
+    setSelectedWashType(wash);
+    setBookingData({
+      selectedWashType: {
+        key: wash.key,
+        name: wash.name,
+        basePrice: wash.basePrice,
+        durationMins: wash.durationMins,
+        washTypeId: wash._id,
+      },
+    });
   };
 
   const handleContinue = () => {
     if (!selectedWashType || selectedCars.length === 0) return;
-
-    // Find the database wash type to get the actual ID
-    const dbWashType = dbWashTypes.find((w: any) => w.key === selectedWashType.key);
-
     setBookingData({
       selectedCarIds: selectedCars,
       selectedWashType: {
@@ -53,203 +83,171 @@ export default function HomeScreen() {
         name: selectedWashType.name,
         basePrice: selectedWashType.basePrice,
         durationMins: selectedWashType.durationMins,
-        washTypeId: dbWashType?._id, // Store the database ID for later
+        washTypeId: selectedWashType._id,
       },
       total: selectedWashType.basePrice * selectedCars.length,
-      subscriptionPlan: subscriptionPlan, // Save current subscription plan
+      subscriptionPlan,
     });
-
-    if (defaultAddress) {
-      setBookingData({ selectedAddressId: defaultAddress._id });
-    }
-    
-    // Go to summary instead of review
+    if (defaultAddress) setBookingData({ selectedAddressId: defaultAddress._id });
     router.push("/summary");
   };
 
-  const total = selectedWashType
-    ? selectedWashType.basePrice * selectedCars.length
-    : 0;
-
-  const getDiscountedTotal = () => {
-    if (!selectedWashType) return 0;
-    const base = selectedWashType.basePrice * selectedCars.length;
-    if (subscriptionPlan && subscriptionPlan !== "one_time") {
-      return Math.round(base * 0.85);
-    }
-    return base;
-  };
-
-  const displayTotal = getDiscountedTotal();
-  const hasDiscount = subscriptionPlan && subscriptionPlan !== "one_time";
+  const selectedWash = dbWashTypes.find((w: any) => w.key === selectedWashType?.key) || dbWashTypes[0];
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Welcome back,</Text>
-          <Text style={styles.name}>{user?.firstName || "User"}</Text>
-        </View>
-      </View>
-
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {cars.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Select Cars</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.carsList}
-            >
-              {cars.map((car: any) => (
-                <TouchableOpacity
-                  key={car._id}
-                  style={[
-                    styles.carCard,
-                    selectedCars.includes(car._id) && styles.carCardSelected,
-                  ]}
-                  onPress={() => handleCarToggle(car._id)}
-                >
-                  <Text style={styles.carName}>{car.make}</Text>
-                  <Text style={styles.carModel}>
-                    {car.model} {car.year}
-                  </Text>
-                  <Text style={styles.carPlate}>{car.plateNumber}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+        {/* Welcome */}
+        <View style={styles.welcomeSection}>
+          <Text style={styles.greeting}>Hello, {user?.firstName || "there"}.</Text>
+          <View style={styles.welcomeDivider} />
+          <Text style={styles.welcomeSubtext}>Ready for your next professional wash session?</Text>
+        </View>
 
-        {cars.length === 0 && (
+        {/* Bento Grid */}
+        <View style={styles.bentoGrid}>
+          <View style={styles.etaCard}>
+            <Text style={styles.etaLabel}>AVAILABILITY</Text>
+            <Text style={styles.etaValue}>
+              {etaPreview ? `${etaPreview.min}-${etaPreview.max}` : "—"}
+            </Text>
+            <Text style={styles.etaUnit}>MINUTES ETA</Text>
+          </View>
+        </View>
+
+        {/* Vehicle Card */}
+        {activeCar ? (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <View>
+                <Text style={styles.cardLabel}>ACTIVE VEHICLE</Text>
+                <Text style={styles.cardTitle}>{activeCar.make?.toUpperCase()}</Text>
+                <Text style={styles.cardSubtitle}>
+                  {activeCar.model} / {activeCar.year}
+                </Text>
+              </View>
+              <View style={styles.carIcon}>
+                <Text style={styles.carIconText}>G</Text>
+              </View>
+            </View>
+            {activeCar.photoStorageId ? (
+              <CarPhoto storageId={activeCar.photoStorageId} />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Text style={styles.imagePlaceholderText}>FIG. 01 — SELECTED</Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.ghostButton}
+              onPress={() => router.push("/(tabs)/cars")}
+            >
+              <Text style={styles.ghostButtonText}>CHANGE VEHICLE</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
           <TouchableOpacity
-            style={styles.addCarPrompt}
+            style={styles.addCarCard}
             onPress={() => router.push("/(tabs)/cars")}
           >
-            <Text style={styles.addCarPromptText}>Add your first car</Text>
+            <Text style={styles.addCarText}>ADD YOUR FIRST VEHICLE</Text>
           </TouchableOpacity>
         )}
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Choose Wash Type</Text>
-          <View style={styles.washTypesList}>
-            {washTypes.map((wash) => (
+        {/* Wash Type Selection */}
+        <View style={styles.card}>
+          <Text style={styles.cardLabel}>SELECT WASH TYPE</Text>
+          <View style={styles.washTypeList}>
+            {(dbWashTypes as any[]).filter((w: any) => w.isActive !== false).map((wash: any) => (
               <TouchableOpacity
                 key={wash.key}
                 style={[
-                  styles.washTypeCard,
-                  selectedWashType?.key === wash.key && styles.washTypeSelected,
+                  styles.washTypeItem,
+                  selectedWashType?.key === wash.key && styles.washTypeItemSelected,
                 ]}
-                onPress={() => {
-                  setSelectedWashForModal(wash);
-                  setModalVisible(true);
-                }}
+                onPress={() => handleSelectWashType(wash)}
               >
-                <View style={styles.washTypeHeader}>
-                  <Text style={styles.washTypeName}>{wash.name}</Text>
-                  <Text style={styles.washTypePrice}>
-                    {wash.basePrice} {wash.currency}
-                  </Text>
+                <View style={styles.washTypeRow}>
+                  <View style={styles.washTypeLeft}>
+                    <Text style={styles.washTypeName}>{wash.name?.toUpperCase()}</Text>
+                    <TouchableOpacity
+                      style={styles.infoButton}
+                      onPress={() => {
+                        setSelectedWashForModal(wash);
+                        setModalVisible(true);
+                      }}
+                    >
+                      <Ionicons name="information-circle-outline" size={16} color={colors.ink_dim} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.washTypePrice}>{wash.basePrice} AED</Text>
                 </View>
                 <Text style={styles.washTypeDesc}>{wash.description}</Text>
-                <Text style={styles.washTypeDuration}>
-                  ~{wash.durationMins} mins
-                </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
 
-        <View style={styles.addressSection}>
-          <Text style={styles.sectionTitle}>Location</Text>
-          {defaultAddress ? (
-            <View style={styles.addressCard}>
-              <Text style={styles.addressText}>
-                {defaultAddress.formattedAddress}
-              </Text>
-              <TouchableOpacity onPress={() => router.push("/location")}>
-                <Text style={styles.changeText}>Change</Text>
-              </TouchableOpacity>
+        {/* Book Now Button - Always visible when wash type and car selected */}
+        {selectedWashType && selectedCars.length > 0 && (
+          <TouchableOpacity style={styles.bookNowButton} onPress={handleContinue}>
+            <Text style={styles.bookNowButtonText}>
+              BOOK {selectedWashType.name?.toUpperCase()} — {selectedWashType.basePrice * selectedCars.length} AED
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Car Selection */}
+        {cars.length > 1 && (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>SELECT CARS</Text>
+            <View style={styles.carGrid}>
+              {cars.map((car: any) => (
+                <TouchableOpacity
+                  key={car._id}
+                  style={[
+                    styles.carChip,
+                    selectedCars.includes(car._id) && styles.carChipSelected,
+                  ]}
+                  onPress={() => handleCarToggle(car._id)}
+                >
+                  <Text
+                    style={[
+                      styles.carChipText,
+                      selectedCars.includes(car._id) && styles.carChipTextSelected,
+                    ]}
+                  >
+                    {car.make?.toUpperCase()}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.addAddressButton}
-              onPress={() => router.push("/location")}
-            >
-              <Text style={styles.addAddressText}>Add your location</Text>
+          </View>
+        )}
+
+        {/* Address */}
+        {defaultAddress && (
+          <View style={styles.card}>
+            <Text style={styles.cardLabel}>LOCATION</Text>
+            <Text style={styles.addressText}>{defaultAddress.formattedAddress}</Text>
+            <TouchableOpacity onPress={() => router.push("/location")}>
+              <Text style={styles.changeLink}>CHANGE</Text>
             </TouchableOpacity>
-          )}
-        </View>
+          </View>
+        )}
+
+        <View style={{ height: spacing.xxl }} />
       </ScrollView>
 
-      <View style={styles.footer}>
-        <View style={styles.priceRow}>
-          <View>
-            <Text style={styles.priceLabel}>Total</Text>
-            {hasDiscount && (
-              <Text style={styles.discountLabel}>15% off applied</Text>
-            )}
-          </View>
-          <View style={styles.priceValueContainer}>
-            <Text style={styles.priceValue}>
-              {displayTotal} AED
-            </Text>
-            {selectedCars.length > 1 && (
-              <Text style={styles.priceBreakup}>
-                ({selectedWashType?.basePrice} x {selectedCars.length})
-              </Text>
-            )}
-          </View>
-        </View>
-        <TouchableOpacity
-          style={[
-            styles.continueButton,
-            (!selectedWashType || selectedCars.length === 0 || !defaultAddress) &&
-              styles.continueButtonDisabled,
-          ]}
-          onPress={handleContinue}
-          disabled={!selectedWashType || selectedCars.length === 0 || !defaultAddress}
-        >
-          <Text style={styles.continueButtonText}>Book Now</Text>
-        </TouchableOpacity>
-      </View>
-
+      {/* Wash Detail Modal */}
       <WashDetailModal
         visible={modalVisible}
         washType={selectedWashForModal}
-        onClose={() => {
-          setModalVisible(false);
-          setSelectedWashForModal(null);
-        }}
+        onClose={() => setModalVisible(false)}
         onBookNow={() => {
-          setModalVisible(false);
           if (selectedWashForModal) {
-            // Find the database wash type to get the actual ID
-            const dbWashType = dbWashTypes.find((w: any) => w.key === selectedWashForModal.key);
-            
-            // Save wash type
-            setSelectedWashType(selectedWashForModal);
-            
-            // Save to booking store with all necessary data
-            setBookingData({
-              selectedWashType: {
-                key: selectedWashForModal.key,
-                name: selectedWashForModal.name,
-                basePrice: selectedWashForModal.basePrice,
-                durationMins: selectedWashForModal.durationMins,
-                washTypeId: dbWashType?._id,
-              },
-              selectedCarIds: selectedCars,
-              total: selectedWashForModal.basePrice * selectedCars.length,
-              subscriptionPlan: subscriptionPlan, // Keep current subscription plan
-            });
-            
-            // Save default address if available
-            if (defaultAddress) {
-              setBookingData({ selectedAddressId: defaultAddress._id });
-            }
+            handleSelectWashType(selectedWashForModal);
+            setModalVisible(false);
           }
-          router.push("/summary");
         }}
       />
     </View>
@@ -259,232 +257,339 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xxl + 20,
-    paddingBottom: spacing.md,
-  },
-  greeting: {
-    fontSize: 14,
-    color: colors.text_secondary,
-  },
-  name: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: colors.text_primary,
+    backgroundColor: colors.bg,
   },
   content: {
     flex: 1,
     paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xxl + 20,
   },
-  section: {
+  welcomeSection: {
     marginBottom: spacing.xl,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: colors.text_primary,
+  greeting: {
+    fontSize: 42,
+    fontWeight: "700",
+    color: colors.ink,
+    letterSpacing: -0.5,
+    lineHeight: 44,
+  },
+  welcomeDivider: {
+    height: 1,
+    backgroundColor: colors.line_soft,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  welcomeSubtext: {
+    fontSize: 15,
+    color: colors.ink_soft,
+  },
+  card: {
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: borderRadius.lg,
+    padding: spacing.lg,
     marginBottom: spacing.md,
   },
-  carsList: {
-    gap: spacing.md,
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: spacing.lg,
   },
-  carCard: {
-    backgroundColor: colors.surface_container_low,
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    minWidth: 140,
+  cardLabel: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.accent,
+    letterSpacing: 1.4,
+    marginBottom: spacing.xs,
   },
-  carCardSelected: {
-    backgroundColor: colors.surface_container_high,
+  cardTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: colors.ink,
+    letterSpacing: -0.5,
   },
-  carName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text_primary,
-  },
-  carModel: {
+  cardSubtitle: {
     fontSize: 13,
-    color: colors.text_secondary,
+    color: colors.ink_dim,
     marginTop: 2,
   },
-  carPlate: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: colors.primary,
-    marginTop: spacing.sm,
+  carIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.line_soft,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface_container_high,
   },
-  addCarPrompt: {
-    backgroundColor: colors.surface_container_low,
+  carIconText: {
+    fontSize: 18,
+    fontWeight: "500",
+    color: colors.ink,
+  },
+  imagePlaceholder: {
+    width: "100%",
+    aspectRatio: 16 / 9,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.bg_deep,
+    marginBottom: spacing.md,
+    alignItems: "flex-start",
+    justifyContent: "flex-end",
+    padding: spacing.sm,
+    overflow: "hidden",
+  },
+  imagePlaceholderText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.on_ink,
+    backgroundColor: colors.ink,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  ghostButton: {
+    borderWidth: 1.5,
+    borderColor: colors.ink,
+    borderRadius: borderRadius.full,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+  },
+  ghostButtonText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.ink,
+    letterSpacing: 1.4,
+  },
+  addCarCard: {
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
     borderRadius: borderRadius.lg,
     padding: spacing.xl,
     alignItems: "center",
-    marginBottom: spacing.xl,
-  },
-  addCarPromptText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  washTypesList: {
-    gap: spacing.md,
-  },
-  washTypeCard: {
-    backgroundColor: colors.surface_container_low,
-    borderRadius: borderRadius.xl,
-    padding: spacing.lg,
-  },
-  washTypeSelected: {
-    backgroundColor: colors.surface_container_high,
-  },
-  washTypeHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.sm,
-  },
-  washTypeName: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: colors.text_primary,
-  },
-  washTypePrice: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: colors.primary,
-  },
-  washTypeDesc: {
-    fontSize: 14,
-    color: colors.text_secondary,
-  },
-  washTypeDuration: {
-    fontSize: 13,
-    color: colors.text_secondary,
-    marginTop: spacing.sm,
-  },
-  subscriptionToggle: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  subscriptionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text_primary,
-  },
-  subscriptionDesc: {
-    fontSize: 13,
-    color: colors.text_secondary,
-    marginTop: 2,
-  },
-  toggle: {
-    width: 50,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: colors.surface_container_high,
-    justifyContent: "center",
-    paddingHorizontal: 2,
-  },
-  toggleActive: {
-    backgroundColor: colors.primary,
-  },
-  toggleThumb: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: colors.text_primary,
-  },
-  toggleThumbActive: {
-    alignSelf: "flex-end",
-  },
-  addressSection: {
-    marginBottom: spacing.xl,
-  },
-  addressCard: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  addressText: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.text_primary,
-    marginRight: spacing.md,
-  },
-  changeText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: "500",
-  },
-  addAddressButton: {
-    backgroundColor: colors.surface_container_low,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    alignItems: "center",
-  },
-  addAddressText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: "500",
-  },
-  footer: {
-    backgroundColor: colors.surface_container_low,
-    padding: spacing.lg,
-    paddingBottom: spacing.xl,
-  },
-  priceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: spacing.md,
   },
+  addCarText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.accent,
+    letterSpacing: 1.4,
+  },
+  serviceName: {
+    fontSize: 22,
+    fontWeight: "500",
+    color: colors.ink,
+    letterSpacing: -0.3,
+  },
+  priceBlock: {
+    alignItems: "flex-end",
+  },
   priceLabel: {
-    fontSize: 16,
-    color: colors.text_secondary,
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.ink_dim,
+    letterSpacing: 1.4,
+    marginBottom: 2,
   },
   priceValue: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: colors.text_primary,
+    fontSize: 22,
+    fontWeight: "500",
+    color: colors.ink,
   },
-  priceBreakup: {
-    fontSize: 14,
+  priceUnit: {
+    fontSize: 13,
     fontWeight: "400",
-    color: colors.text_secondary,
   },
-  continueButton: {
-    backgroundColor: colors.primary,
+  dottedDivider: {
+    height: 1,
+    backgroundColor: "transparent",
+    borderTopWidth: 1,
+    borderTopColor: colors.line_soft,
+    borderStyle: "dotted",
+    marginVertical: spacing.md,
+  },
+  featureList: {
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  featureItem: {
+    fontSize: 13,
+    color: colors.ink_soft,
+  },
+  primaryButton: {
+    backgroundColor: colors.ink,
     paddingVertical: spacing.md,
     borderRadius: borderRadius.full,
     alignItems: "center",
   },
-  continueButtonDisabled: {
-    backgroundColor: colors.surface_container_high,
-    opacity: 0.5,
+  primaryButtonText: {
+    color: colors.on_ink,
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: -0.5,
   },
-  continueButtonText: {
-    color: colors.on_primary,
-    fontSize: 16,
-    fontWeight: "600",
+  washTypeList: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
   },
-  discountLabel: {
-    fontSize: 12,
-    color: colors.success,
+  washTypeItem: {
+    backgroundColor: colors.bg_soft,
+    borderRadius: borderRadius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  washTypeItemSelected: {
+    borderColor: colors.accent,
+  },
+  washTypeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  washTypeLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  infoButton: {
+    padding: 2,
+  },
+  washTypeName: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.ink,
+  },
+  washTypePrice: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: colors.ink,
+  },
+  washTypeDesc: {
+    fontSize: 13,
+    color: colors.ink_soft,
+  },
+  carGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  carChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.bg_soft,
+  },
+  carChipSelected: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
+  },
+  carChipText: {
+    fontSize: 10,
     fontWeight: "500",
-    marginTop: 2,
+    color: colors.ink,
+    letterSpacing: 1.4,
   },
-  priceValueContainer: {
-    alignItems: "flex-end",
+  carChipTextSelected: {
+    color: colors.on_ink,
+  },
+  addressText: {
+    fontSize: 15,
+    color: colors.ink,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  changeLink: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.accent,
+    letterSpacing: 1.4,
+  },
+  bentoGrid: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  etaCard: {
+    width: 120,
+    backgroundColor: colors.bg_soft,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: borderRadius.lg,
+    padding: spacing.sm,
+    aspectRatio: 1,
+    justifyContent: "space-between",
+  },
+  etaLabel: {
+    fontSize: 8,
+    fontWeight: "600",
+    color: colors.ink_dim,
+    letterSpacing: 0.8,
+  },
+  etaValue: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: colors.ink,
+    letterSpacing: -1,
+    lineHeight: 28,
+  },
+  etaUnit: {
+    fontSize: 8,
+    fontWeight: "500",
+    color: colors.ink_dim,
+    letterSpacing: 0.6,
+  },
+  promoCard: {
+    flex: 1,
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    aspectRatio: 1,
+    justifyContent: "space-between",
+  },
+  promoTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: colors.on_accent,
+  },
+  promoSubtext: {
+    fontSize: 9,
+    fontWeight: "500",
+    color: "rgba(17,19,21,0.6)",
+    letterSpacing: 0.8,
+  },
+  carPhotoImage: {
+    width: "100%",
+    height: 160,
+    borderRadius: borderRadius.lg,
+    marginBottom: spacing.md,
+    resizeMode: "cover",
+  },
+  bookNowButton: {
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.lg,
+    borderRadius: borderRadius.full,
+    alignItems: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  bookNowButtonText: {
+    color: colors.on_accent,
+    fontSize: 16,
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
 });

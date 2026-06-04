@@ -1,0 +1,193 @@
+/* WOSH — Brand tokens v1.0
+ * Direction: Marine + Brutalist + Hero price-led
+ * Use these CSS custom properties as the source of truth.
+ * Drop this file in your repo and @import or <link> it from the root stylesheet.
+ */
+
+:root {
+  /* ============ COLOR — Marine palette ============ */
+  /* Surfaces */
+  --wosh-bg:           #dfe9e3;   /* page background — pale celadon */
+  --wosh-bg-soft:      #d4e0d8;   /* card / chip background */
+  --wosh-bg-deep:      #c1d2c7;   /* hovered or pressed surface */
+  --wosh-paper:        #f3f7f4;   /* sheets, modals, elevated layer */
+
+  /* Ink */
+  --wosh-ink:          #0e2236;   /* primary text + primary fill */
+  --wosh-ink-soft:     #4a5e6f;   /* secondary text */
+  --wosh-ink-dim:      #7d8d99;   /* tertiary / placeholder */
+  --wosh-line:         #b2c3b8;   /* default border */
+  --wosh-line-soft:    #c8d4cc;   /* subtle divider */
+
+  /* Accent — signature blue */
+  --wosh-accent:       #1976ff;   /* primary action / live state */
+  --wosh-accent-deep:  #0c52c2;   /* pressed / dark variant */
+  --wosh-accent-soft:  #cfe0ff;   /* tinted background */
+
+  /* Semantic */
+  --wosh-good:         #1a8459;   /* success */
+  --wosh-warn:         #c8841a;   /* warning */
+  --wosh-hot:          #d94545;   /* danger / canceled */
+
+  /* On-color (for text/icons placed on each fill) */
+  --wosh-on-ink:       #f3f7f4;
+  --wosh-on-accent:    #ffffff;
+
+  /* ============ TYPE — Brutalist ============ */
+  /* Single-family Space Grotesk handles display + UI for tight, blocky feel.
+     IBM Plex Mono carries codes, labels, numerals where indexed feel is wanted. */
+  --wosh-font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --wosh-font-ui:      "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --wosh-font-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Type scale — modular, fixed values for mobile-first
+     Use these tokens directly. No half-steps. */
+  --wosh-fs-hero:      120px;  /* hero numeral on home; line-height: 0.9 */
+  --wosh-fs-display:   42px;   /* screen titles */
+  --wosh-fs-h1:        28px;   /* secondary heads */
+  --wosh-fs-h2:        22px;   /* card titles */
+  --wosh-fs-body:      15px;   /* body */
+  --wosh-fs-sm:        13px;   /* secondary body */
+  --wosh-fs-label:     10px;   /* mono labels (uppercased, 0.14em tracking) */
+
+  --wosh-fw-regular:   400;
+  --wosh-fw-medium:    500;
+  --wosh-fw-bold:      700;
+
+  /* Letter-spacing */
+  --wosh-track-display: -0.03em;  /* tighter for hero numerals */
+  --wosh-track-tight:   -0.01em;
+  --wosh-track-label:    0.14em;  /* mono labels */
+
+  /* Line-height */
+  --wosh-lh-hero:       0.9;
+  --wosh-lh-display:    1.05;
+  --wosh-lh-body:       1.45;
+
+  /* ============ SPACE & SHAPE ============ */
+  /* 4pt grid */
+  --wosh-sp-1:  4px;
+  --wosh-sp-2:  8px;
+  --wosh-sp-3:  12px;
+  --wosh-sp-4:  16px;
+  --wosh-sp-5:  20px;
+  --wosh-sp-6:  24px;
+  --wosh-sp-7:  32px;
+  --wosh-sp-8:  48px;
+  --wosh-sp-9:  64px;
+
+  /* Radii — brutalist: small, almost-square */
+  --wosh-r-sq:    2px;   /* default — chips, badges, cards */
+  --wosh-r-card:  4px;
+  --wosh-r-sheet: 12px;
+  --wosh-r-pill:  9999px;
+
+  /* Borders */
+  --wosh-bw-hair: 1px;
+  --wosh-bw-rule: 1.5px;  /* default control border */
+  --wosh-bw-bold: 2px;    /* emphasized */
+
+  /* Shadows — minimal, no soft glows */
+  --wosh-sh-card:  0 1px 0 rgba(14,34,54,0.04);
+  --wosh-sh-sheet: 0 -2px 0 rgba(14,34,54,0.04), 0 24px 40px -20px rgba(14,34,54,0.25);
+  --wosh-sh-focus: 0 0 0 3px rgba(25,118,255,0.25);
+
+  /* Motion */
+  --wosh-ease-out:  cubic-bezier(0.2, 0.7, 0.2, 1);
+  --wosh-dur-fast:  120ms;
+  --wosh-dur-base:  240ms;
+  --wosh-dur-slow:  420ms;
+}
+
+/* ============ Mono label helper ============ */
+.wosh-label {
+  font-family: var(--wosh-font-mono);
+  font-size: var(--wosh-fs-label);
+  letter-spacing: var(--wosh-track-label);
+  text-transform: uppercase;
+  color: var(--wosh-ink-soft);
+}
+
+/* ============ Type helpers ============ */
+.wosh-hero    { font-family: var(--wosh-font-display); font-weight: var(--wosh-fw-bold); font-size: var(--wosh-fs-hero); line-height: var(--wosh-lh-hero); letter-spacing: var(--wosh-track-display); }
+.wosh-display { font-family: var(--wosh-font-display); font-weight: var(--wosh-fw-bold); font-size: var(--wosh-fs-display); line-height: var(--wosh-lh-display); letter-spacing: var(--wosh-track-tight); }
+.wosh-h1      { font-family: var(--wosh-font-display); font-weight: var(--wosh-fw-bold); font-size: var(--wosh-fs-h1); line-height: 1.1; }
+.wosh-h2      { font-family: var(--wosh-font-display); font-weight: var(--wosh-fw-medium); font-size: var(--wosh-fs-h2); line-height: 1.15; }
+.wosh-body    { font-family: var(--wosh-font-ui); font-weight: var(--wosh-fw-regular); font-size: var(--wosh-fs-body); line-height: var(--wosh-lh-body); }
+.wosh-sm      { font-family: var(--wosh-font-ui); font-weight: var(--wosh-fw-regular); font-size: var(--wosh-fs-sm); line-height: 1.4; }
+.wosh-mono    { font-family: var(--wosh-font-mono); font-weight: var(--wosh-fw-medium); }
+
+/* ============ Components — drop-in classes ============ */
+
+/* Buttons */
+.wosh-btn {
+  font-family: var(--wosh-font-ui);
+  font-size: var(--wosh-fs-body);
+  font-weight: var(--wosh-fw-medium);
+  padding: 14px 20px;
+  border-radius: var(--wosh-r-pill);
+  border: none;
+  cursor: pointer;
+  transition: transform var(--wosh-dur-fast) var(--wosh-ease-out),
+              background var(--wosh-dur-fast) var(--wosh-ease-out);
+}
+.wosh-btn:active { transform: scale(0.985); }
+.wosh-btn-primary { background: var(--wosh-ink); color: var(--wosh-on-ink); }
+.wosh-btn-accent  { background: var(--wosh-accent); color: var(--wosh-on-accent); }
+.wosh-btn-ghost   {
+  background: transparent;
+  color: var(--wosh-ink);
+  border: var(--wosh-bw-rule) solid var(--wosh-line);
+}
+.wosh-btn:disabled { background: var(--wosh-line); color: var(--wosh-ink-dim); cursor: not-allowed; }
+.wosh-btn:focus-visible { outline: none; box-shadow: var(--wosh-sh-focus); }
+
+/* Cards */
+.wosh-card {
+  background: var(--wosh-bg-soft);
+  border: var(--wosh-bw-hair) solid var(--wosh-line);
+  border-radius: var(--wosh-r-card);
+  padding: var(--wosh-sp-5);
+}
+
+/* Status pills */
+.wosh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--wosh-font-mono);
+  font-size: 9px;
+  letter-spacing: var(--wosh-track-label);
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: var(--wosh-r-sq);
+  border: var(--wosh-bw-hair) solid currentColor;
+}
+.wosh-pill::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+
+/* Inputs */
+.wosh-input {
+  font-family: var(--wosh-font-ui);
+  font-size: var(--wosh-fs-body);
+  background: var(--wosh-paper);
+  color: var(--wosh-ink);
+  border: var(--wosh-bw-rule) solid var(--wosh-line);
+  border-radius: var(--wosh-r-card);
+  padding: 12px 14px;
+  width: 100%;
+  outline: none;
+}
+.wosh-input:focus { border-color: var(--wosh-accent); box-shadow: var(--wosh-sh-focus); }
+
+/* Dotted divider (receipt feel) */
+.wosh-dotline {
+  height: 1px;
+  background-image: linear-gradient(to right, var(--wosh-line) 50%, transparent 0%);
+  background-size: 6px 1px;
+  background-repeat: repeat-x;
+  border: none;
+}

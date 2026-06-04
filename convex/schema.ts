@@ -4,9 +4,11 @@ import { v } from "convex/values";
 export default defineSchema({
   users: defineTable({
     clerkId: v.string(),
+    prevClerkIds: v.optional(v.array(v.string())),
     email: v.string(),
     name: v.string(),
     phone: v.optional(v.string()),
+    pushToken: v.optional(v.string()),
     role: v.union(v.literal("customer"), v.literal("operator"), v.literal("admin"), v.literal("superadmin")),
     defaultAddressId: v.optional(v.id("addresses")),
     isActive: v.boolean(),
@@ -24,6 +26,7 @@ export default defineSchema({
     plateNumber: v.string(),
     plateRegion: v.optional(v.string()),
     color: v.optional(v.string()),
+    photoStorageId: v.optional(v.string()),
     isActive: v.boolean(),
     createdAt: v.number(),
   }).index("by_user_id", ["userId"]),
@@ -50,9 +53,11 @@ export default defineSchema({
     basePrice: v.number(),
     currency: v.string(),
     durationMins: v.number(),
+    imageUrl: v.optional(v.string()),
+    features: v.optional(v.array(v.string())),
     isActive: v.boolean(),
     sortOrder: v.number(),
-  }),
+  }).index("by_key", ["key"]),
 
   bookings: defineTable({
     bookingNumber: v.string(),
@@ -92,18 +97,29 @@ export default defineSchema({
     etaMin: v.optional(v.number()),
     etaMax: v.optional(v.number()),
     scheduledFor: v.optional(v.number()),
+    scheduledWindow: v.optional(v.union(v.literal("morning"), v.literal("afternoon"), v.literal("evening"))),
+    scheduledDate: v.optional(v.number()),
     assignedTeamId: v.optional(v.id("teams")),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user_id", ["userId"])
     .index("by_status", ["status"])
-    .index("by_booking_number", ["bookingNumber"]),
+    .index("by_booking_number", ["bookingNumber"])
+    .index("by_assigned_team", ["assignedTeamId"]),
 
   bookingCars: defineTable({
     bookingId: v.id("bookings"),
     carId: v.id("cars"),
   }).index("by_booking_id", ["bookingId"])
     .index("by_car_id", ["carId"]),
+
+  bookingPhotos: defineTable({
+    bookingId: v.id("bookings"),
+    type: v.union(v.literal("arrival_car"), v.literal("arrival_location"), v.literal("completion")),
+    storageId: v.string(),
+    url: v.string(),
+    createdAt: v.number(),
+  }).index("by_booking_id", ["bookingId"]),
 
   subscriptions: defineTable({
     userId: v.id("users"),
@@ -132,6 +148,9 @@ export default defineSchema({
 
   teams: defineTable({
     name: v.string(),
+    phone: v.optional(v.string()),
+    pinHash: v.optional(v.string()),
+    pushToken: v.optional(v.string()),
     status: v.union(
       v.literal("available"),
       v.literal("busy"),
@@ -141,7 +160,20 @@ export default defineSchema({
     currentLng: v.optional(v.number()),
     lastLocationAt: v.optional(v.number()),
     isActive: v.boolean(),
-  }),
+  }).index("by_phone", ["phone"]),
+
+  teamSessions: defineTable({
+    teamId: v.id("teams"),
+    sessionId: v.string(),
+    expiresAt: v.number(),
+  }).index("by_session_id", ["sessionId"]),
+
+  teamLoginAttempts: defineTable({
+    phone: v.string(),
+    attemptedAt: v.number(),
+    success: v.boolean(),
+  }).index("by_phone", ["phone"])
+    .index("by_attempted_at", ["attemptedAt"]),
 
   bookingAssignments: defineTable({
     bookingId: v.id("bookings"),
@@ -171,4 +203,46 @@ export default defineSchema({
     updatedBy: v.optional(v.id("users")),
     updatedAt: v.number(),
   }).index("by_key", ["key"]),
+
+  vans: defineTable({
+    name: v.string(),
+    plate: v.string(),
+    teamId: v.optional(v.id("teams")),
+    status: v.union(v.literal("available"), v.literal("busy"), v.literal("maintenance")),
+    currentLat: v.optional(v.number()),
+    currentLng: v.optional(v.number()),
+    lastMaintenanceAt: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }),
+
+  zones: defineTable({
+    name: v.string(),
+    status: v.union(v.literal("active"), v.literal("busy"), v.literal("inactive")),
+    baseEtaMin: v.number(),
+    baseEtaMax: v.number(),
+    driversAvailable: v.number(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }),
+
+  refunds: defineTable({
+    bookingId: v.id("bookings"),
+    userId: v.id("users"),
+    amount: v.number(),
+    currency: v.string(),
+    reason: v.string(),
+    requestedBy: v.string(),
+    status: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    reviewedBy: v.optional(v.string()),
+    reviewedAt: v.optional(v.number()),
+    rejectionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_booking_id", ["bookingId"])
+    .index("by_user_id", ["userId"])
+    .index("by_status", ["status"]),
 });

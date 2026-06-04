@@ -1,4 +1,4 @@
-# Midnight Velocity - Premium Car Wash Booking Platform
+# WOSH - Premium Car Wash Booking Platform
 
 A full-stack car wash booking system with admin approval workflow, real-time tracking, and team management. Built with Expo React Native, Next.js, Convex, and Clerk.
 
@@ -33,7 +33,7 @@ monorepo/
 
 ```bash
 git clone <your-repo-url>
-cd midnight-velocity
+cd Carwash
 npm install
 ```
 

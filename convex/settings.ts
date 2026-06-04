@@ -16,7 +16,7 @@ export const getSetting = query({
 export const listSettings = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("systemSettings").collect();
+    return await ctx.db.query("systemSettings").take(100);
   },
 });
 
@@ -67,32 +67,5 @@ export const adminUpdateSystemSetting = mutation({
       payload: JSON.stringify({ value: args.value }),
       createdAt: Date.now(),
     });
-  },
-});
-
-export const seedDefaultSettings = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const defaults = [
-      { key: "default_eta_min", value: "30" },
-      { key: "default_eta_max", value: "45" },
-      { key: "service_fee", value: "0" },
-      { key: "currency", value: "AED" },
-    ];
-
-    for (const setting of defaults) {
-      const existing = await ctx.db
-        .query("systemSettings")
-        .withIndex("by_key", (q) => q.eq("key", setting.key))
-        .first();
-
-      if (!existing) {
-        await ctx.db.insert("systemSettings", {
-          key: setting.key,
-          value: setting.value,
-          updatedAt: Date.now(),
-        });
-      }
-    }
   },
 });

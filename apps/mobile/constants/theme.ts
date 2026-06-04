@@ -1,27 +1,56 @@
 export const colors = {
-  background: "#0e0e0e",
-  surface: "#1a1919",
-  surface_container_low: "#131313",
-  surface_container: "#1a1919",
-  surface_container_high: "#201f1f",
-  surface_container_highest: "#262626",
-  surface_bright: "#2c2c2c",
-  surface_dim: "#0e0e0e",
-  primary: "#cc97ff",
-  primary_dim: "#9c48ea",
-  primary_container: "#c284ff",
-  on_primary: "#47007c",
-  secondary: "#ba9ff9",
-  tertiary: "#ff97b2",
-  text_primary: "#ffffff",
-  text_secondary: "#adaaaa",
-  outline_variant: "#494847",
-  ghost_border: "rgba(73, 72, 71, 0.15)",
-  error: "#ff6e84",
-  success: "#22C55E",
-  warning: "#F59E0B",
-  danger: "#EF4444",
-  shadow_primary: "rgba(132, 44, 211, 0.12)",
+  // Surface hierarchy — dark graphite
+  background: "#242629",
+  surface: "#2E3136",
+  surface_container_low: "#2A2D31",
+  surface_container: "#2E3136",
+  surface_container_high: "#353940",
+  surface_container_highest: "#3A3F45",
+  surface_bright: "#353940",
+  surface_dim: "#2A2D31",
+
+  // Stitch aliases — dark
+  bg: "#242629",
+  bg_soft: "#2A2D31",
+  bg_deep: "#353940",
+  paper: "#2E3136",
+  line: "#3A3F45",
+  line_soft: "#353940",
+
+  // Ink (text) — light on dark
+  ink: "#F7F8F4",
+  ink_soft: "#98A0A6",
+  ink_dim: "#6B7280",
+  on_ink: "#111315",
+
+  // Accent — neon green
+  accent: "#B8FF38",
+  accent_deep: "#A6EA2F",
+  accent_soft: "rgba(184,255,56,0.14)",
+  on_accent: "#111315",
+
+  // Legacy mappings
+  primary: "#B8FF38",
+  primary_dim: "#A6EA2F",
+  primary_container: "rgba(184,255,56,0.14)",
+  on_primary: "#111315",
+  secondary: "#98A0A6",
+  tertiary: "#6B7280",
+  text_primary: "#F7F8F4",
+  text_secondary: "#98A0A6",
+  outline_variant: "#3A3F45",
+  ghost_border: "rgba(58,63,69,0.4)",
+
+  // Semantic — brighter for dark backgrounds
+  error: "#FF5A5A",
+  success: "#34D399",
+  warning: "#FBBF24",
+  danger: "#FF5A5A",
+  good: "#34D399",
+  warn: "#FBBF24",
+  hot: "#FF5A5A",
+
+  shadow_primary: "rgba(184,255,56,0.12)",
 };
 
 export const spacing = {
@@ -29,44 +58,17 @@ export const spacing = {
   sm: 8,
   md: 16,
   lg: 24,
-  xl: 32,
-  xxl: 48,
+  xl: 48,
+  xxl: 64,
 };
 
 export const borderRadius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
+  sm: 2,
+  md: 4,
+  lg: 12,
   xl: 24,
   full: 9999,
 };
-
-export const washTypes = [
-  {
-    key: "basic",
-    name: "Basic Wash",
-    description: "Quick exterior clean",
-    basePrice: 35,
-    currency: "AED",
-    durationMins: 30,
-  },
-  {
-    key: "premium",
-    name: "Premium Wash",
-    description: "More thorough exterior and finishing",
-    basePrice: 55,
-    currency: "AED",
-    durationMins: 45,
-  },
-  {
-    key: "full_detail",
-    name: "Full Detail",
-    description: "High-end full service package",
-    basePrice: 95,
-    currency: "AED",
-    durationMins: 75,
-  },
-];
 
 export const subscriptionFrequencies = [
   { key: "one_time", label: "One-time" },
@@ -76,16 +78,16 @@ export const subscriptionFrequencies = [
 ];
 
 export const bookingStatuses = {
-  draft: { label: "Draft", color: colors.text_secondary },
-  booked: { label: "Booked", color: colors.warning },
-  awaiting_payment: { label: "Awaiting Payment", color: colors.warning },
-  confirmed: { label: "Confirmed", color: colors.primary },
-  team_assigned: { label: "Team Assigned", color: colors.primary_container },
-  on_the_way: { label: "On the Way", color: colors.primary_container },
-  arrived: { label: "Arrived", color: colors.success },
-  washing_in_progress: { label: "Washing", color: colors.success },
-  completed: { label: "Completed", color: colors.success },
-  canceled: { label: "Canceled", color: colors.danger },
-  rejected: { label: "Rejected", color: colors.error },
-  payment_failed: { label: "Payment Failed", color: colors.danger },
+  draft: { label: "Draft", color: colors.ink_dim },
+  booked: { label: "Booked", color: colors.warn },
+  awaiting_payment: { label: "Awaiting Payment", color: colors.warn },
+  confirmed: { label: "Confirmed", color: colors.accent },
+  team_assigned: { label: "Team Assigned", color: colors.accent_soft },
+  on_the_way: { label: "On the Way", color: colors.accent },
+  arrived: { label: "Arrived", color: colors.good },
+  washing_in_progress: { label: "Washing", color: colors.accent },
+  completed: { label: "Completed", color: colors.good },
+  canceled: { label: "Canceled", color: colors.hot },
+  rejected: { label: "Rejected", color: colors.hot },
+  payment_failed: { label: "Payment Failed", color: colors.hot },
 };

@@ -11,6 +11,7 @@ import {
   Dimensions,
 } from "react-native";
 import { useQuery } from "convex/react";
+import { api } from "../convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../constants/theme";
 import { useBookingStore } from "../lib/store";
@@ -33,19 +34,21 @@ export default function SummaryScreen() {
   const [showWashPicker, setShowWashPicker] = useState(false);
   
   const booking = useBookingStore();
-  const { 
-    selectedWashType, 
-    selectedCarIds, 
-    selectedAddressId, 
+  const {
+    selectedWashType,
+    selectedCarIds,
+    selectedAddressId,
     subscriptionPlan,
+    scheduledWindow,
+    scheduledDate,
     getDiscountedPrice,
     setBookingData,
-    reset 
+    reset
   } = booking;
   
-  const cars = useQuery("cars:listMyCars" as any) || [];
-  const addresses = useQuery("addresses:listMyAddresses" as any) || [];
-  const washTypes = useQuery("washTypes:listWashTypes" as any) || [];
+  const cars = useQuery(api.cars.listMyCars) || [];
+  const addresses = useQuery(api.addresses.listMyAddresses) || [];
+  const washTypes = useQuery(api.washTypes.listWashTypes) || [];
   
   // Get selected data
   const selectedCars = cars.filter((c: any) => selectedCarIds.includes(c._id));
@@ -98,14 +101,12 @@ export default function SummaryScreen() {
   const handleAddLocation = () => {
     router.push("/location");
   };
+
+  const handleSelectTime = () => {
+    router.push("/time" as any);
+  };
   
-  const handleConfirm = () => {
-    // Debug logging
-    console.log("[Booking Debug] selectedCarIds:", selectedCarIds);
-    console.log("[Booking Debug] selectedAddressId:", selectedAddressId);
-    console.log("[Booking Debug] selectedWashType:", selectedWashType);
-    console.log("[Booking Debug] hasCar:", hasCar, "hasLocation:", hasLocation);
-    
+   const handleConfirm = () => {
     if (!hasCar || selectedCarIds.length === 0) {
       Alert.alert("Car Required", "Please select at least one car");
       return;
@@ -116,6 +117,10 @@ export default function SummaryScreen() {
     }
     if (!selectedWashType) {
       Alert.alert("Error", "Please select a wash type");
+      return;
+    }
+    if (!scheduledWindow || !scheduledDate) {
+      Alert.alert("Time Required", "Please select a time slot for your booking");
       return;
     }
     
@@ -481,7 +486,37 @@ export default function SummaryScreen() {
             </TouchableOpacity>
           )}
         </View>
-        
+
+        {/* Time Window */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Schedule</Text>
+          <TouchableOpacity style={styles.addCard} onPress={handleSelectTime}>
+            {scheduledWindow && scheduledDate ? (
+              <>
+                <Text style={styles.addCardText}>
+                  {new Date(scheduledDate).toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </Text>
+                <Text style={styles.addCardSubtext}>
+                  {scheduledWindow === "morning"
+                    ? "Morning (8 AM - 12 PM)"
+                    : scheduledWindow === "afternoon"
+                    ? "Afternoon (12 PM - 4 PM)"
+                    : "Evening (4 PM - 8 PM)"}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.addCardText}>+ Select Time Window</Text>
+                <Text style={styles.addCardSubtext}>Required to continue</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {/* Pricing Summary */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Price Summary</Text>

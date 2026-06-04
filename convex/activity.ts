@@ -19,6 +19,6 @@ export const listActivityLogsByEntity = query({
       .withIndex("by_entity", (q) =>
         q.eq("entityType", args.entityType).eq("entityId", args.entityId)
       )
-      .collect();
+      .take(100);
   },
 });

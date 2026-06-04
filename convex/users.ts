@@ -1,5 +1,77 @@
 import { v } from "convex/values";
-import { mutation, query } from "./_generated/server";
+import { MutationCtx, mutation, query } from "./_generated/server";
+
+async function upsertUserRecord(
+  ctx: MutationCtx,
+  args: {
+    clerkId: string;
+    email: string;
+    name: string;
+    phone?: string;
+  }
+) {
+  const normalizedEmail = args.email.trim().toLowerCase();
+  const normalizedName = args.name.trim() || normalizedEmail.split("@")[0];
+
+  const existingByClerkId = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+    .first();
+
+  if (existingByClerkId) {
+    await ctx.db.patch(existingByClerkId._id, {
+      email: normalizedEmail,
+      name: normalizedName,
+      phone: args.phone,
+      lastSeenAt: Date.now(),
+    });
+    return existingByClerkId._id;
+  }
+
+  const existingByEmail = await ctx.db
+    .query("users")
+    .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+    .first();
+
+  if (existingByEmail) {
+    const prevClerkIds: string[] = existingByEmail.prevClerkIds || [];
+    if (existingByEmail.clerkId !== args.clerkId && !prevClerkIds.includes(existingByEmail.clerkId)) {
+      prevClerkIds.push(existingByEmail.clerkId);
+    }
+
+    await ctx.db.patch(existingByEmail._id, {
+      clerkId: args.clerkId,
+      prevClerkIds,
+      email: normalizedEmail,
+      name: normalizedName,
+      phone: args.phone,
+      lastSeenAt: Date.now(),
+    });
+    return existingByEmail._id;
+  }
+
+  const userId = await ctx.db.insert("users", {
+    clerkId: args.clerkId,
+    email: normalizedEmail,
+    name: normalizedName,
+    phone: args.phone,
+    role: "customer",
+    isActive: true,
+    createdAt: Date.now(),
+    lastSeenAt: Date.now(),
+  });
+
+  await ctx.db.insert("activityLogs", {
+    actorUserId: userId,
+    actorRole: "customer",
+    entityType: "user",
+    entityId: userId.toString(),
+    action: "created",
+    createdAt: Date.now(),
+  });
+
+  return userId;
+}
 
 export const getByClerkId = query({
   args: { clerkId: v.string() },
@@ -31,7 +103,7 @@ export const getCurrentUserProfile = query({
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("users").collect();
+    return await ctx.db.query("users").take(1000);
   },
 });
 
@@ -50,7 +122,7 @@ export const adminListUsers = query({
       throw new Error("Forbidden");
     }
 
-    let users = await ctx.db.query("users").collect();
+    let users = await ctx.db.query("users").take(1000);
 
     if (args.searchQuery) {
       const query = args.searchQuery.toLowerCase();
@@ -73,57 +145,26 @@ export const syncUserFromClerk = mutation({
     phone: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existingByClerkId = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
-      .first();
+    return await upsertUserRecord(ctx, args);
+  },
+});
 
-    if (existingByClerkId) {
-      await ctx.db.patch(existingByClerkId._id, {
-        email: args.email,
-        name: args.name,
-        phone: args.phone,
-        lastSeenAt: Date.now(),
-      });
-      return existingByClerkId._id;
-    }
+export const ensureCurrentUser = mutation({
+  args: {
+    email: v.string(),
+    name: v.string(),
+    phone: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Unauthorized");
 
-    const existingByEmail = await ctx.db
-      .query("users")
-      .withIndex("by_email", (q) => q.eq("email", args.email))
-      .first();
-
-    if (existingByEmail) {
-      await ctx.db.patch(existingByEmail._id, {
-        clerkId: args.clerkId,
-        name: args.name,
-        phone: args.phone,
-        lastSeenAt: Date.now(),
-      });
-      return existingByEmail._id;
-    }
-
-    const userId = await ctx.db.insert("users", {
-      clerkId: args.clerkId,
+    return await upsertUserRecord(ctx, {
+      clerkId: identity.subject,
       email: args.email,
       name: args.name,
       phone: args.phone,
-      role: "customer",
-      isActive: true,
-      createdAt: Date.now(),
-      lastSeenAt: Date.now(),
     });
-
-    await ctx.db.insert("activityLogs", {
-      actorUserId: userId,
-      actorRole: "customer",
-      entityType: "user",
-      entityId: userId.toString(),
-      action: "created",
-      createdAt: Date.now(),
-    });
-
-    return userId;
   },
 });
 

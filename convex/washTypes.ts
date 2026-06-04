@@ -5,6 +5,16 @@ export const listWashTypes = query({
   args: {},
   handler: async (ctx) => {
     const washTypes = await ctx.db.query("washTypes").collect();
+    return washTypes
+      .filter((w) => w.isActive)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  },
+});
+
+export const listAllWashTypes = query({
+  args: {},
+  handler: async (ctx) => {
+    const washTypes = await ctx.db.query("washTypes").collect();
     return washTypes.sort((a, b) => a.sortOrder - b.sortOrder);
   },
 });
@@ -25,6 +35,8 @@ export const adminUpsertWashType = mutation({
     basePrice: v.number(),
     currency: v.string(),
     durationMins: v.number(),
+    imageUrl: v.optional(v.string()),
+    features: v.optional(v.array(v.string())),
     isActive: v.boolean(),
     sortOrder: v.number(),
   },
@@ -59,7 +71,7 @@ export const adminUpsertWashType = mutation({
     } else {
       const existing = await ctx.db
         .query("washTypes")
-        .filter((q) => q.eq(q.field("key"), args.key))
+        .withIndex("by_key", (q) => q.eq("key", args.key))
         .first();
 
       if (existing) {
@@ -107,47 +119,6 @@ export const adminDeleteWashType = mutation({
       entityId: args.washTypeId.toString(),
       action: "deleted",
       createdAt: Date.now(),
-    });
-  },
-});
-
-export const seedWashTypes = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const existing = await ctx.db.query("washTypes").first();
-    if (existing) return;
-
-    await ctx.db.insert("washTypes", {
-      key: "basic",
-      name: "Basic Wash",
-      description: "Quick exterior clean",
-      basePrice: 35,
-      currency: "AED",
-      durationMins: 30,
-      isActive: true,
-      sortOrder: 1,
-    });
-
-    await ctx.db.insert("washTypes", {
-      key: "premium",
-      name: "Premium Wash",
-      description: "More thorough exterior and finishing",
-      basePrice: 55,
-      currency: "AED",
-      durationMins: 45,
-      isActive: true,
-      sortOrder: 2,
-    });
-
-    await ctx.db.insert("washTypes", {
-      key: "full_detail",
-      name: "Full Detail",
-      description: "High-end full service package",
-      basePrice: 95,
-      currency: "AED",
-      durationMins: 75,
-      isActive: true,
-      sortOrder: 3,
     });
   },
 });

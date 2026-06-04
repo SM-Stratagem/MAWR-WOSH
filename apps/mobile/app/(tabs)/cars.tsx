@@ -8,16 +8,20 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useMutation, useQuery } from "convex/react";
+import { api } from "../../convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { colors, spacing, borderRadius } from "../../constants/theme";
 import { carMakes, carModels, carTrims, POPULAR_MAKES } from "../../constants/carData";
 import { UAE_REGIONS, getCodeOptions } from "../../constants/plateData";
 import UAELicensePlate from "../../components/UAELicensePlate";
 import SearchableSelect from "../../components/SearchableSelect";
+import { getUserFacingErrorMessage } from "../../lib/errors";
 
 // SUV/Truck keywords to determine icon type
 const SUV_KEYWORDS = ['suv', 'truck', 'jeep', '4x4', '4wd', 'off-road', 'tank', 'defender', 'wrangler', 'bronco', 'gx', 'lx', 'land cruiser', 'prado', 'patrol', 'tahoe', 'suburban', 'escalade', 'navigator', 'range rover', 'sport', 'velar', 'discovery'];
@@ -45,6 +49,16 @@ const YEAR_OPTIONS = Array.from({ length: 15 }, (_, i) => String(CURRENT_YEAR - 
 
 type FormStep = "make" | "model" | "trim" | "year" | "plate" | "color" | "review";
 
+function CarPhoto({ storageId }: { storageId: string }) {
+  const photoUrl = useQuery(api.cars.getPhotoUrl, { storageId });
+  if (!photoUrl) return null;
+  return (
+    <View style={styles.carPhotoContainer}>
+      <Image source={{ uri: photoUrl }} style={styles.carPhoto} />
+    </View>
+  );
+}
+
 export default function CarsScreen() {
   const router = useRouter();
   const { userId, isLoaded: isAuthLoaded, isSignedIn } = useAuth();
@@ -63,10 +77,13 @@ export default function CarsScreen() {
   const [color, setColor] = useState("");
   const [nickname, setNickname] = useState("");
   const [saving, setSaving] = useState(false);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
 
-  const cars = useQuery("cars:listMyCars" as any) || [];
-  const createCarMutation = useMutation("cars:createCar" as any);
-  const deleteCarMutation = useMutation("cars:deleteCar" as any);
+  const cars = useQuery(api.cars.listMyCars) || [];
+  const createCarMutation = useMutation(api.cars.createCar);
+  const deleteCarMutation = useMutation(api.cars.deleteCar);
+  const generateUploadUrl = useMutation(api.cars.generateUploadUrl);
+  const saveCarPhoto = useMutation(api.cars.saveCarPhoto);
   
 
 
@@ -84,7 +101,74 @@ export default function CarsScreen() {
     setPlateNumber("");
     setColor("");
     setNickname("");
+    setPhotoUri(null);
     setStep("make");
+  };
+
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow access to your photos.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow camera access.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const showPhotoOptions = () => {
+    Alert.alert("Vehicle Photo", "How would you like to add a photo?", [
+      { text: "Camera", onPress: takePhoto },
+      { text: "Photo Library", onPress: pickPhoto },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const uploadPhoto = async (uri: string): Promise<string | null> => {
+    try {
+      const uploadUrl = await generateUploadUrl();
+
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      const result = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": blob.type || "image/jpeg" },
+        body: blob,
+      });
+
+      const { storageId } = await result.json();
+      return storageId;
+    } catch (error) {
+      console.error("Photo upload failed:", error);
+      return null;
+    }
   };
 
   const handleSave = async () => {
@@ -107,8 +191,11 @@ export default function CarsScreen() {
       
       const plateStr = `${plateCode} ${plateNumber}`;
 
-      
-      // Add timeout to prevent hanging
+      let photoStorageId: string | null = null;
+      if (photoUri) {
+        photoStorageId = await uploadPhoto(photoUri);
+      }
+
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error("Request timed out - please check your connection")), 15000);
       });
@@ -122,19 +209,18 @@ export default function CarsScreen() {
           plateRegion: plateCity.toLowerCase(),
           color: color || undefined,
           nickname: nickname || `${make} ${model}`,
+          photoStorageId: photoStorageId || undefined,
         } as any),
         timeoutPromise
       ]);
       
-
       setSaving(false);
       setShowAddForm(false);
       resetForm();
       Alert.alert("Success", "Car added successfully!");
     } catch (error: any) {
       setSaving(false);
-
-      Alert.alert("Error", error?.message || "Failed to add car. Please check that:\n\n1. You're connected to the internet\n2. The Convex dev server is running (npx convex dev)\n3. Try logging out and back in");
+      Alert.alert("Could not add car", getUserFacingErrorMessage(error, "Failed to add car. Please try again."));
     }
   };
 
@@ -148,7 +234,7 @@ export default function CarsScreen() {
           try {
             await deleteCarMutation({ carId: carId as any });
           } catch (error: any) {
-            Alert.alert("Error", error?.message || "Failed to delete car");
+            Alert.alert("Could not delete car", getUserFacingErrorMessage(error, "Failed to delete car. Please try again."));
           }
         },
       },
@@ -359,7 +445,7 @@ export default function CarsScreen() {
       <TextInput
         style={styles.plateInput}
         placeholder="e.g. 12345"
-        placeholderTextColor={colors.text_secondary}
+        placeholderTextColor={colors.ink_dim}
         value={plateNumber}
         onChangeText={setPlateNumber}
         keyboardType="number-pad"
@@ -409,7 +495,7 @@ export default function CarsScreen() {
       <TextInput
         style={styles.textInput}
         placeholder={`e.g. My ${make} ${model}`}
-        placeholderTextColor={colors.text_secondary}
+        placeholderTextColor={colors.ink_dim}
         value={nickname}
         onChangeText={setNickname}
       />
@@ -476,12 +562,30 @@ export default function CarsScreen() {
         )}
       </View>
 
+      {/* Photo Upload */}
+      <Text style={styles.fieldLabel}>Vehicle Photo (optional)</Text>
+      <TouchableOpacity style={styles.photoUploadArea} onPress={showPhotoOptions}>
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+        ) : (
+          <View style={styles.photoPlaceholder}>
+            <Ionicons name="camera-outline" size={32} color={colors.ink_dim} />
+            <Text style={styles.photoPlaceholderText}>TAP TO ADD PHOTO</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+      {photoUri && (
+        <TouchableOpacity style={styles.removePhotoButton} onPress={() => setPhotoUri(null)}>
+          <Text style={styles.removePhotoText}>REMOVE PHOTO</Text>
+        </TouchableOpacity>
+      )}
+
       <TouchableOpacity
         style={[styles.primaryButton, saving && styles.primaryButtonDisabled]}
         onPress={handleSave}
         disabled={saving}
       >
-        {saving ? <ActivityIndicator color={colors.text_primary} /> : (
+        {saving ? <ActivityIndicator color={colors.ink} /> : (
           <Text style={styles.primaryButtonText}>Add Car</Text>
         )}
       </TouchableOpacity>
@@ -541,12 +645,13 @@ export default function CarsScreen() {
         ) : (
           cars.map((car: any) => (
             <View key={car._id} style={styles.carCard}>
+              {car.photoStorageId && <CarPhoto storageId={car.photoStorageId} />}
               <View style={styles.carHeader}>
                 <View style={styles.carTitleRow}>
                   <Ionicons 
                     name={isSUV(car.make, car.model) ? "car-sport" : "car"} 
                     size={24} 
-                    color={colors.primary}
+                    color={colors.accent}
                     style={styles.carIcon}
                   />
                   <Text style={styles.carName}>
@@ -568,7 +673,7 @@ export default function CarsScreen() {
                 <View style={styles.plateSection}>
                   <View style={styles.plateHeader}>
                     <Text style={styles.plateCityLabel}>
-                      {UAE_REGIONS.find(r => r.key === car.plateRegion)?.label || 'Dubai'}
+                      {UAE_REGIONS.find(r => r.key.toLowerCase() === (car.plateRegion || "dubai").toLowerCase())?.label || 'Dubai'}
                     </Text>
                   </View>
                   <View style={styles.plateContainer}>
@@ -589,7 +694,7 @@ export default function CarsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.bg },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -597,39 +702,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xxl + 20,
     paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line_soft,
+    backgroundColor: colors.paper,
   },
-  title: { fontSize: 24, fontWeight: "700", color: colors.text_primary },
-  headerTitle: { fontSize: 18, fontWeight: "600", color: colors.text_primary },
-  cancelButtonText: { fontSize: 16, color: colors.text_secondary },
+  title: { fontSize: 28, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
+  headerTitle: { fontSize: 18, fontWeight: "700", color: colors.ink },
+  cancelButtonText: { fontSize: 10, fontWeight: "500", color: colors.ink_dim, letterSpacing: 1.4 },
   addButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.ink,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.full,
   },
-  addButtonText: { color: colors.text_primary, fontSize: 16, fontWeight: "600" },
+  addButtonText: { color: colors.on_ink, fontSize: 10, fontWeight: "700", letterSpacing: 1.4 },
   list: { flex: 1 },
   listContent: { padding: spacing.lg },
   empty: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.xxl * 2 },
-  emptyTitle: { fontSize: 18, fontWeight: "600", color: colors.text_primary, marginBottom: spacing.sm },
-  emptySubtext: { fontSize: 14, color: colors.text_secondary },
+  emptyTitle: { fontSize: 22, fontWeight: "700", color: colors.ink, marginBottom: spacing.sm },
+  emptySubtext: { fontSize: 13, color: colors.ink_dim },
   carCard: {
-    backgroundColor: colors.surface_container_low,
-    borderRadius: borderRadius.xl,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: borderRadius.lg,
     padding: spacing.lg,
     marginBottom: spacing.md,
   },
   carHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.sm },
-  carName: { fontSize: 18, fontWeight: "600", color: colors.text_primary },
+  carName: { fontSize: 28, fontWeight: "700", color: colors.ink, letterSpacing: -0.5 },
   deleteButton: {
-    backgroundColor: colors.danger,
+    backgroundColor: colors.hot,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.full,
   },
-  deleteButtonText: { color: "#ffffff", fontSize: 13, fontWeight: "600" },
+  deleteButtonText: { color: colors.on_accent, fontSize: 10, fontWeight: "700", letterSpacing: 1.4 },
   carDetails: { marginBottom: spacing.sm },
-  detailText: { fontSize: 14, color: colors.text_secondary },
+  detailText: { fontSize: 13, color: colors.ink_dim },
   plateContainer: { alignItems: "center", marginTop: spacing.sm },
   formScroll: { flex: 1 },
   stepIndicator: {
@@ -639,62 +749,70 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
   },
-  stepDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.surface_container_high },
-  stepDotActive: { backgroundColor: colors.primary },
-  stepDotCurrent: { width: 14, height: 14, borderRadius: 7, backgroundColor: colors.primary },
-  stepLine: { flex: 1, height: 2, backgroundColor: colors.surface_container_high, marginHorizontal: 4 },
-  stepLineActive: { backgroundColor: colors.primary },
+  stepDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.bg_deep },
+  stepDotActive: { backgroundColor: colors.accent },
+  stepDotCurrent: { width: 14, height: 14, borderRadius: 7, backgroundColor: colors.accent },
+  stepLine: { flex: 1, height: 2, backgroundColor: colors.bg_deep, marginHorizontal: 4 },
+  stepLineActive: { backgroundColor: colors.accent },
   stepContent: { padding: spacing.lg },
-  stepTitle: { fontSize: 22, fontWeight: "700", color: colors.text_primary, marginBottom: spacing.lg },
+  stepTitle: { fontSize: 22, fontWeight: "700", color: colors.ink, marginBottom: spacing.lg },
   sectionLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.text_secondary,
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.ink_dim,
+    letterSpacing: 1.4,
     marginBottom: spacing.sm,
     marginTop: spacing.md,
   },
   fieldLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.text_secondary,
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.ink_dim,
+    letterSpacing: 1.4,
     marginBottom: spacing.sm,
     marginTop: spacing.md,
   },
   textInput: {
-    backgroundColor: colors.surface_container_highest,
+    backgroundColor: colors.paper,
+    borderWidth: 1.5,
+    borderColor: colors.line,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    color: colors.text_primary,
+    color: colors.ink,
     fontSize: 16,
     marginTop: spacing.sm,
   },
   chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   regionChips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginBottom: spacing.md },
   chip: {
-    backgroundColor: colors.surface_container_high,
-    borderRadius: borderRadius.md,
+    backgroundColor: colors.bg_soft,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.line,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
-  chipSelected: { backgroundColor: colors.primary },
-  chipText: { color: colors.text_primary, fontSize: 14, fontWeight: "500" },
-  chipTextSelected: { color: "#ffffff" },
+  chipSelected: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipText: { color: colors.ink, fontSize: 13, fontWeight: "500" },
+  chipTextSelected: { color: colors.on_ink },
   regionChip: {
-    backgroundColor: colors.surface_container_high,
+    backgroundColor: colors.bg_soft,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     alignItems: "center",
     minWidth: 80,
   },
-  regionArabic: { color: colors.text_secondary, fontSize: 12, marginBottom: 2 },
+  regionArabic: { color: colors.ink_dim, fontSize: 12, marginBottom: 2 },
   plateInput: {
-    backgroundColor: colors.surface_container_highest,
+    backgroundColor: colors.paper,
+    borderWidth: 1.5,
+    borderColor: colors.line,
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    color: colors.text_primary,
+    color: colors.ink,
     fontSize: 24,
     fontWeight: "700",
     textAlign: "center",
@@ -702,25 +820,27 @@ const styles = StyleSheet.create({
   },
   platePreview: { alignItems: "center", marginVertical: spacing.lg },
   primaryButton: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.accent,
     paddingVertical: spacing.md,
     borderRadius: borderRadius.full,
     alignItems: "center",
     marginTop: spacing.lg,
   },
   primaryButtonDisabled: { opacity: 0.5 },
-  primaryButtonText: { color: colors.on_primary, fontSize: 16, fontWeight: "700" },
+  primaryButtonText: { color: colors.on_accent, fontSize: 15, fontWeight: "700", letterSpacing: 1 },
   skipButton: {
     paddingVertical: spacing.md,
     alignItems: "center",
     marginTop: spacing.sm,
   },
-  skipButtonText: { color: colors.text_secondary, fontSize: 15, fontWeight: "500" },
+  skipButtonText: { color: colors.ink_dim, fontSize: 13, fontWeight: "500" },
   backButton: { paddingVertical: spacing.sm, marginBottom: spacing.sm },
-  backButtonText: { color: colors.text_secondary, fontSize: 16 },
+  backButtonText: { color: colors.ink_dim, fontSize: 13 },
   reviewCard: {
-    backgroundColor: colors.surface_container_low,
-    borderRadius: borderRadius.xl,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: borderRadius.lg,
     padding: spacing.lg,
     marginBottom: spacing.md,
   },
@@ -729,8 +849,8 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingVertical: spacing.sm,
   },
-  reviewLabel: { fontSize: 14, color: colors.text_secondary, fontWeight: "500" },
-  reviewValue: { fontSize: 14, color: colors.text_primary, fontWeight: "600" },
+  reviewLabel: { fontSize: 10, color: colors.ink_dim, fontWeight: "500", letterSpacing: 1.4 },
+  reviewValue: { fontSize: 15, color: colors.ink, fontWeight: "600" },
   carTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -742,7 +862,7 @@ const styles = StyleSheet.create({
   },
   plateSection: {
     marginTop: spacing.md,
-    backgroundColor: colors.surface_container_high,
+    backgroundColor: colors.bg_soft,
     borderRadius: borderRadius.md,
     padding: spacing.md,
   },
@@ -750,10 +870,60 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   plateCityLabel: {
-    fontSize: 12,
-    color: colors.text_secondary,
-    fontWeight: "600",
+    fontSize: 10,
+    color: colors.ink_dim,
+    fontWeight: "500",
     textTransform: "uppercase",
-    letterSpacing: 0.5,
+    letterSpacing: 1.4,
+  },
+  photoUploadArea: {
+    backgroundColor: colors.paper,
+    borderWidth: 1.5,
+    borderColor: colors.line,
+    borderRadius: borderRadius.lg,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+  },
+  photoPreview: {
+    width: "100%",
+    height: 200,
+    resizeMode: "cover",
+  },
+  photoPlaceholder: {
+    width: "100%",
+    height: 160,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  photoPlaceholderText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.ink_dim,
+    letterSpacing: 1.4,
+  },
+  removePhotoButton: {
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  removePhotoText: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: colors.hot,
+    letterSpacing: 1.4,
+  },
+  carPhotoContainer: {
+    width: "100%",
+    height: 160,
+    borderRadius: borderRadius.lg,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+    backgroundColor: colors.bg_soft,
+  },
+  carPhoto: {
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
 });
