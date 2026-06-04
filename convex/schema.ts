@@ -44,7 +44,8 @@ export default defineSchema({
     isDefault: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_user_id", ["userId"]),
+  }).index("by_user_id", ["userId"])
+    .index("by_user_id_and_default", ["userId", "isDefault"]),
 
   washTypes: defineTable({
     key: v.string(),
@@ -100,12 +101,14 @@ export default defineSchema({
     scheduledWindow: v.optional(v.union(v.literal("morning"), v.literal("afternoon"), v.literal("evening"))),
     scheduledDate: v.optional(v.number()),
     assignedTeamId: v.optional(v.id("teams")),
+    subscriptionDiscountPercent: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user_id", ["userId"])
     .index("by_status", ["status"])
     .index("by_booking_number", ["bookingNumber"])
-    .index("by_assigned_team", ["assignedTeamId"]),
+    .index("by_assigned_team", ["assignedTeamId"])
+    .index("by_subscription_id", ["subscriptionId"]),
 
   bookingCars: defineTable({
     bookingId: v.id("bookings"),
@@ -141,16 +144,20 @@ export default defineSchema({
     stripeCustomerId: v.optional(v.string()),
     defaultPaymentMethodId: v.optional(v.string()),
     selectedCarIds: v.array(v.id("cars")),
+    discountPercent: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user_id", ["userId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_next_run_at", ["nextRunAt"]),
 
   teams: defineTable({
     name: v.string(),
     phone: v.optional(v.string()),
     pinHash: v.optional(v.string()),
+    pinSalt: v.optional(v.string()),
     pushToken: v.optional(v.string()),
+    pushTokens: v.optional(v.array(v.string())),
     status: v.union(
       v.literal("available"),
       v.literal("busy"),
@@ -160,13 +167,24 @@ export default defineSchema({
     currentLng: v.optional(v.number()),
     lastLocationAt: v.optional(v.number()),
     isActive: v.boolean(),
-  }).index("by_phone", ["phone"]),
+  }).index("by_phone", ["phone"])
+    .index("by_status", ["status"]),
+
+  teamLocations: defineTable({
+    teamId: v.id("teams"),
+    currentLat: v.number(),
+    currentLng: v.number(),
+    lastLocationAt: v.number(),
+  }).index("by_team_id", ["teamId"]),
 
   teamSessions: defineTable({
     teamId: v.id("teams"),
     sessionId: v.string(),
     expiresAt: v.number(),
-  }).index("by_session_id", ["sessionId"]),
+    deviceLabel: v.optional(v.string()),
+  }).index("by_session_id", ["sessionId"])
+    .index("by_team_id", ["teamId"])
+    .index("by_expires_at", ["expiresAt"]),
 
   teamLoginAttempts: defineTable({
     phone: v.string(),
