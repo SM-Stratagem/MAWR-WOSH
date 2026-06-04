@@ -18,6 +18,7 @@ import type * as carHelpers from "../carHelpers.js";
 import type * as cars from "../cars.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as migrations from "../migrations.js";
 import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as phone from "../phone.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   cars: typeof cars;
   crons: typeof crons;
   http: typeof http;
+  migrations: typeof migrations;
   notifications: typeof notifications;
   payments: typeof payments;
   phone: typeof phone;
