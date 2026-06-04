@@ -23,6 +23,7 @@ import type * as notifications from "../notifications.js";
 import type * as payments from "../payments.js";
 import type * as phone from "../phone.js";
 import type * as photos from "../photos.js";
+import type * as pinHash from "../pinHash.js";
 import type * as refunds from "../refunds.js";
 import type * as settings from "../settings.js";
 import type * as subscriptions from "../subscriptions.js";
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   payments: typeof payments;
   phone: typeof phone;
   photos: typeof photos;
+  pinHash: typeof pinHash;
   refunds: typeof refunds;
   settings: typeof settings;
   subscriptions: typeof subscriptions;

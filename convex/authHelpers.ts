@@ -1,7 +1,9 @@
 import { QueryCtx, MutationCtx } from "./_generated/server";
+import { Doc } from "./_generated/dataModel";
 import { GenericId } from "convex/values";
 
-type UserRole = "customer" | "operator" | "admin" | "superadmin";
+export type Role = "customer" | "operator" | "admin" | "superadmin";
+type UserRole = Role;
 
 export async function getUserByClerkId(ctx: QueryCtx | MutationCtx, clerkId: string) {
   return await ctx.db
@@ -57,3 +59,31 @@ export async function requireOwnership(
 
   return currentUser;
 }
+
+export async function getCurrentUser(
+  ctx: QueryCtx | MutationCtx
+): Promise<Doc<"users">> {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Unauthorized");
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
+    .first();
+  if (!user) throw new Error("Unauthorized");
+  return user;
+}
+
+export async function requireRole(
+  ctx: QueryCtx | MutationCtx,
+  allowed: Role[]
+): Promise<Doc<"users">> {
+  const user = await getCurrentUser(ctx);
+  if (!allowed.includes(user.role as Role)) {
+    throw new Error(`Forbidden: requires one of ${allowed.join(", ")}`);
+  }
+  return user;
+}
+
+export const STAFF_ROLES: Role[] = ["operator", "admin", "superadmin"];
+export const ADMIN_ROLES: Role[] = ["admin", "superadmin"];
+export const SUPERADMIN_ONLY: Role[] = ["superadmin"];
