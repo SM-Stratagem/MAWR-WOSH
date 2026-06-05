@@ -405,3 +405,60 @@ export const deleteMyAccount = mutation({
     return { ok: true };
   },
 });
+
+export const adminGetCustomerDetail = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, STAFF_ROLES);
+    const user = await ctx.db.get(args.userId);
+    if (!user) return null;
+
+    const cars = await ctx.db
+      .query("cars")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    const addresses = await ctx.db
+      .query("addresses")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .order("desc")
+      .take(50);
+
+    const subscriptions = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    const refunds = await ctx.db
+      .query("refunds")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+
+    // Enrich bookings with washType name
+    const wtIds = Array.from(new Set(bookings.map((b) => b.washTypeId)));
+    const wts = await Promise.all(wtIds.map((id) => ctx.db.get(id)));
+    const wtMap = new Map(wts.filter((w) => w !== null).map((w) => [w!._id, w!]));
+
+    const totalSpent = bookings
+      .filter((b) => b.paymentStatus === "succeeded")
+      .reduce((acc, b) => acc + (b.total ?? 0), 0);
+
+    return {
+      user,
+      cars,
+      addresses,
+      bookings: bookings.map((b) => ({
+        ...b,
+        washType: wtMap.get(b.washTypeId) ?? null,
+      })),
+      subscriptions,
+      refunds,
+      totalSpent,
+    };
+  },
+});
