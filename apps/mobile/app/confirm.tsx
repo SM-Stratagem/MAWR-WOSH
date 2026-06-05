@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../constants/theme";
@@ -23,8 +23,13 @@ export default function ConfirmScreen() {
   const { reset } = useBookingStore();
   const createBooking = useMutation(api.bookings.createBookingDraft);
   const confirmBooking = useMutation(api.bookings.confirmBookingAfterPayment);
+  const discountPctSetting = useQuery(api.settings.getPublic, { key: "subscription_discount_pct" });
+  const subscriptionDiscountPct = discountPctSetting ? Number(discountPctSetting) : 15;
 
   useEffect(() => {
+    // Wait for settings query to resolve so discount % isn't a stale default
+    // (discountPctSetting === undefined while in-flight, null/string once resolved).
+    if (discountPctSetting === undefined) return;
     const doBooking = async () => {
       const booking = useBookingStore.getState();
 
@@ -47,12 +52,16 @@ export default function ConfirmScreen() {
       }
 
     try {
+      const isSubscription =
+        booking.subscriptionPlan && booking.subscriptionPlan !== "one_time";
+      const discountPercent = isSubscription ? subscriptionDiscountPct : 0;
       const id = await createBooking({
         carIds: booking.selectedCarIds as any,
         washTypeId: booking.selectedWashType?.washTypeId as any,
         addressId: booking.selectedAddressId as any,
         scheduledWindow: booking.scheduledWindow as any,
         scheduledDate: booking.scheduledDate as any,
+        subscriptionDiscountPercent: discountPercent,
       });
 
       reset();
@@ -68,7 +77,8 @@ export default function ConfirmScreen() {
     };
 
     doBooking();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [discountPctSetting]);
 
   if (status === "loading") {
     return (
