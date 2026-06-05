@@ -2,40 +2,48 @@ import { useRouter } from "expo-router";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from "react-native";
 import { useAuth } from "@clerk/clerk-expo";
 import { useMutation } from "convex/react";
-import { api } from "../../../convex/_generated/api";
+import { api } from "../convex/_generated/api";
 import { colors, spacing } from "../constants/theme";
 import { useState } from "react";
+import { getUserFacingErrorMessage } from "../lib/errors";
 
 export default function DeleteAccountScreen() {
   const router = useRouter();
   const { signOut } = useAuth();
+  const deleteMyAccount = useMutation(api.users.deleteMyAccount);
   const [loading, setLoading] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
 
-  const handleDeleteAccount = async () => {
-    if (!confirmed) {
-      Alert.alert(
-        "Are you sure?",
-        "This action cannot be undone. All your data will be permanently deleted.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "I understand", onPress: () => setConfirmed(true) },
-        ]
-      );
-      return;
-    }
-
+  const performDelete = async () => {
     setLoading(true);
     try {
-      // In a real app, you would call a mutation to delete the user's data
-      // For now, we'll just sign out
+      await deleteMyAccount({});
       await signOut();
       router.replace("/welcome");
-    } catch (error) {
-      Alert.alert("Error", "Failed to delete account. Please try again.");
+    } catch (error: any) {
+      Alert.alert(
+        "Couldn't delete account",
+        getUserFacingErrorMessage(error, "Please try again."),
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      "Delete account?",
+      "This permanently deletes your account, cars, addresses, and cancels any active subscriptions. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void performDelete();
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -101,9 +109,7 @@ export default function DeleteAccountScreen() {
           {loading ? (
             <ActivityIndicator color={colors.on_primary} />
           ) : (
-            <Text style={styles.deleteButtonText}>
-              {confirmed ? "Confirm Account Deletion" : "Delete My Account"}
-            </Text>
+            <Text style={styles.deleteButtonText}>Delete My Account</Text>
           )}
         </TouchableOpacity>
 
