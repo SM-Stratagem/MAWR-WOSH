@@ -2,12 +2,21 @@ import bcrypt from "bcryptjs";
 
 const COST = 10;
 
-export async function hashPin(pin: string): Promise<{ hash: string; salt: string }> {
-  const salt = await bcrypt.genSalt(COST);
-  const hash = await bcrypt.hash(pin, salt);
+/**
+ * Hash a PIN using bcrypt. Uses the SYNC bcryptjs API on purpose: the async
+ * variant calls setTimeout internally, which Convex queries/mutations forbid.
+ * Sync hashing is fine here — PINs are short and bcrypt at cost 10 finishes
+ * in single-digit milliseconds.
+ */
+export function hashPin(pin: string): { hash: string; salt: string } {
+  const salt = bcrypt.genSaltSync(COST);
+  const hash = bcrypt.hashSync(pin, salt);
   return { hash, salt };
 }
 
-export async function verifyPin(pin: string, hash: string): Promise<boolean> {
-  return await bcrypt.compare(pin, hash);
+/**
+ * Verify a PIN against a bcrypt hash. Sync for the same reason as hashPin.
+ */
+export function verifyPin(pin: string, hash: string): boolean {
+  return bcrypt.compareSync(pin, hash);
 }

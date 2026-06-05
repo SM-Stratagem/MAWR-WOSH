@@ -26,6 +26,7 @@ import type * as phone from "../phone.js";
 import type * as photos from "../photos.js";
 import type * as pinHash from "../pinHash.js";
 import type * as refunds from "../refunds.js";
+import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
 import type * as subscriptions from "../subscriptions.js";
 import type * as teamAuth from "../teamAuth.js";
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   photos: typeof photos;
   pinHash: typeof pinHash;
   refunds: typeof refunds;
+  seed: typeof seed;
   settings: typeof settings;
   subscriptions: typeof subscriptions;
   teamAuth: typeof teamAuth;
