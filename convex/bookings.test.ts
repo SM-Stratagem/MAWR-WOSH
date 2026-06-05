@@ -87,6 +87,77 @@ test("createBookingDraft defaults discount and service fee to 0 when args/settin
   expect(b!.subscriptionDiscountPercent).toBe(0);
 });
 
+test("createSubscription persists default 15% discount for weekly", async () => {
+  const t = convexTest(schema, modules);
+  const { addrId, wtId, carId } = await t.run(async (ctx) => {
+    const u = await ctx.db.insert("users", {
+      clerkId: "c", email: "c@x", name: "C", role: "customer",
+      isActive: true, createdAt: 0, lastSeenAt: 0,
+    });
+    const c = await ctx.db.insert("cars", {
+      userId: u, make: "a", model: "b", plateNumber: "P",
+      isActive: true, createdAt: 0,
+    });
+    const a = await ctx.db.insert("addresses", {
+      userId: u, formattedAddress: "X", latitude: 0, longitude: 0,
+      isDefault: true, createdAt: 0, updatedAt: 0,
+    });
+    const w = await ctx.db.insert("washTypes", {
+      key: "basic", name: "Basic", description: "", basePrice: 50,
+      currency: "AED", durationMins: 30, isActive: true, sortOrder: 1,
+    });
+    return { addrId: a, wtId: w, carId: c };
+  });
+
+  const asC = t.withIdentity({ subject: "c" });
+  const subId = await asC.mutation(api.subscriptions.createSubscription, {
+    addressId: addrId,
+    washTypeId: wtId,
+    carIds: [carId],
+    frequency: "weekly",
+  });
+
+  const s = await t.run(async (ctx) => await ctx.db.get(subId));
+  expect(s!.discountPercent).toBe(15);
+});
+
+test("createSubscription honours configured subscription_discount_pct setting", async () => {
+  const t = convexTest(schema, modules);
+  const { addrId, wtId, carId } = await t.run(async (ctx) => {
+    const u = await ctx.db.insert("users", {
+      clerkId: "cset", email: "cset@x", name: "C", role: "customer",
+      isActive: true, createdAt: 0, lastSeenAt: 0,
+    });
+    const c = await ctx.db.insert("cars", {
+      userId: u, make: "a", model: "b", plateNumber: "P2",
+      isActive: true, createdAt: 0,
+    });
+    const a = await ctx.db.insert("addresses", {
+      userId: u, formattedAddress: "X", latitude: 0, longitude: 0,
+      isDefault: true, createdAt: 0, updatedAt: 0,
+    });
+    const w = await ctx.db.insert("washTypes", {
+      key: "basic", name: "Basic", description: "", basePrice: 50,
+      currency: "AED", durationMins: 30, isActive: true, sortOrder: 1,
+    });
+    await ctx.db.insert("systemSettings", {
+      key: "subscription_discount_pct", value: "20", updatedAt: 0,
+    });
+    return { addrId: a, wtId: w, carId: c };
+  });
+
+  const asC = t.withIdentity({ subject: "cset" });
+  const subId = await asC.mutation(api.subscriptions.createSubscription, {
+    addressId: addrId,
+    washTypeId: wtId,
+    carIds: [carId],
+    frequency: "biweekly",
+  });
+
+  const s = await t.run(async (ctx) => await ctx.db.get(subId));
+  expect(s!.discountPercent).toBe(20);
+});
+
 test("team selection prefers team without ±1h overlap", async () => {
   const t = convexTest(schema, modules);
   // Two teams. teamBusy already has a booking at the same scheduledFor (overlap).

@@ -78,6 +78,16 @@ export const createSubscription = mutation({
 
     const nextRunAt = calculateNextRun(args.frequency);
 
+    // Resolve discount % from settings; recurring plans get the configured
+    // discount (default 15%), one-time gets 0.
+    const discountSetting = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", "subscription_discount_pct"))
+      .first();
+    const rawDiscount = discountSetting?.value != null ? Number(discountSetting.value) : 15;
+    const safeDiscount = Number.isFinite(rawDiscount) ? Math.max(0, Math.min(100, rawDiscount)) : 15;
+    const discountPercent = (args.frequency as string) === "one_time" ? 0 : safeDiscount;
+
     const subscriptionId = await ctx.db.insert("subscriptions", {
       userId: user._id,
       addressId: args.addressId,
@@ -86,6 +96,7 @@ export const createSubscription = mutation({
       status: "active",
       nextRunAt,
       selectedCarIds: uniqueCarIds,
+      discountPercent,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -264,6 +275,7 @@ export const adminUpdateSubscription = mutation({
     subscriptionId: v.id("subscriptions"),
     frequency: v.optional(v.union(v.literal("weekly"), v.literal("biweekly"), v.literal("monthly"))),
     status: v.optional(v.union(v.literal("active"), v.literal("paused"), v.literal("canceled"))),
+    discountPercent: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const adminUser = await requireRole(ctx, ADMIN_ROLES);
@@ -280,6 +292,13 @@ export const adminUpdateSubscription = mutation({
 
     if (args.status) {
       updates.status = args.status;
+    }
+
+    if (args.discountPercent !== undefined) {
+      if (!Number.isFinite(args.discountPercent) || args.discountPercent < 0 || args.discountPercent > 100) {
+        throw new Error("discountPercent must be between 0 and 100");
+      }
+      updates.discountPercent = args.discountPercent;
     }
 
     await ctx.db.patch(args.subscriptionId, updates);
@@ -305,6 +324,12 @@ export const generateRecurringBookings = internalMutation({
       .withIndex("by_status", (q) => q.eq("status", "active"))
       .collect();
 
+    // Read pricing settings once for the whole batch.
+    const settingsRows = await ctx.db.query("systemSettings").collect();
+    const settingsMap: Record<string, string> = {};
+    for (const s of settingsRows) settingsMap[s.key] = s.value;
+    const serviceFeePct = parseFloat(settingsMap["default_service_fee_pct"] ?? "0");
+
     for (const sub of subscriptions) {
       if (sub.nextRunAt && sub.nextRunAt <= now && sub.frequency !== "one_time") {
         const washType = await ctx.db.get(sub.washTypeId);
@@ -312,7 +337,12 @@ export const generateRecurringBookings = internalMutation({
 
         const carCount = sub.selectedCarIds.length;
         const subtotal = washType.basePrice * carCount;
-        const total = subtotal;
+
+        const rawDiscountPct = sub.discountPercent ?? 0;
+        const discountPct = Math.max(0, Math.min(100, rawDiscountPct));
+        const serviceFee = Math.round(subtotal * (serviceFeePct / 100));
+        const discount = Math.round(subtotal * (discountPct / 100));
+        const total = subtotal - discount + serviceFee;
 
         await ctx.db.insert("bookings", {
           bookingNumber: `CW-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
@@ -322,11 +352,13 @@ export const generateRecurringBookings = internalMutation({
           status: "confirmed",
           selectedCarCount: carCount,
           subtotal,
-          serviceFee: 0,
-          discount: 0,
+          serviceFee,
+          discount,
           total,
           currency: washType.currency,
           paymentStatus: "succeeded",
+          subscriptionId: sub._id,
+          subscriptionDiscountPercent: discountPct,
           createdAt: Date.now(),
           updatedAt: Date.now(),
         });
