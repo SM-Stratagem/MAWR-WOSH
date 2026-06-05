@@ -1,10 +1,41 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import { useMutation } from "convex/react";
+import { router } from "expo-router";
 import { api } from "../convex/_generated/api";
 import { useTeamStore } from "./teamStore";
+
+// Push events that should deep-link the customer to their booking tracking page.
+const CUSTOMER_EVENTS = new Set([
+  "team_assigned",
+  "on_the_way",
+  "arrived",
+  "washing_started",
+  "completed",
+]);
+
+// Push events targeted at team members — open the team booking detail.
+const TEAM_EVENTS = new Set([
+  "new_booking",
+  "team_reassigned",
+]);
+
+function routeFromNotificationData(data: unknown) {
+  if (!data || typeof data !== "object") return;
+  const payload = data as Record<string, unknown>;
+  const event = typeof payload.event === "string" ? payload.event : undefined;
+  const bookingId =
+    typeof payload.bookingId === "string" ? payload.bookingId : undefined;
+  if (!event || !bookingId) return;
+
+  if (CUSTOMER_EVENTS.has(event)) {
+    router.push({ pathname: "/tracking", params: { bookingId } });
+  } else if (TEAM_EVENTS.has(event)) {
+    router.push(`/team/${bookingId}` as any);
+  }
+}
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -29,10 +60,14 @@ export function usePushNotifications() {
     registerForPushNotifications().then((token) => {
       if (!token) return;
       // Customer (Clerk-authed) — will fail silently for team-only sessions
-      storePushToken({ token }).catch(() => {});
+      storePushToken({ token }).catch((err) => {
+        console.warn("Failed to store customer push token:", err);
+      });
       // Team (session-based) — only fires when a valid team session exists
       if (teamSessionId) {
-        storeTeamToken({ sessionId: teamSessionId, token }).catch(() => {});
+        storeTeamToken({ sessionId: teamSessionId, token }).catch((err) => {
+          console.warn("Failed to store team push token:", err);
+        });
       }
     });
 
@@ -42,12 +77,24 @@ export function usePushNotifications() {
       }
     );
 
+    // Tap on a push -> deep-link to the right screen.
     responseListener = Notifications.addNotificationResponseReceivedListener(
       (response) => {
         const data = response.notification.request.content.data;
-        console.log("Notification response:", data);
+        routeFromNotificationData(data);
       }
     );
+
+    // Cold-start: app launched FROM tapping a notification — handle that too.
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (response) {
+          routeFromNotificationData(
+            response.notification.request.content.data,
+          );
+        }
+      })
+      .catch(() => {});
 
     return () => {
       notificationListener?.remove();
