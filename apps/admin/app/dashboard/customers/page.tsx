@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from "recharts";
 import { TimeRangeFilter, type TimeRangeKey, filterByTimeRange } from "../../../components/TimeRangeFilter";
 
@@ -209,8 +210,10 @@ export default function CustomersPage() {
                 return (
                   <tr key={c._id}>
                     <td>
-                      <div className="font-medium">{c.name}</div>
-                      <div className="text-[12px] text-[var(--muted)]">{c.email}</div>
+                      <Link href={`/dashboard/customers/${c._id}`} className="block hover:underline">
+                        <div className="font-medium">{c.name}</div>
+                        <div className="text-[12px] text-[var(--muted)]">{c.email}</div>
+                      </Link>
                     </td>
                     <td className="text-[var(--muted)]">{c.phone || "—"}</td>
                     <td>{stats.totalBookings}</td>
