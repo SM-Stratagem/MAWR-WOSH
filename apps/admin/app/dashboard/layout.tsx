@@ -26,7 +26,7 @@ const navItems = [
   { href: "/dashboard/staff", label: "Staff & Roles", icon: Shield },
   { href: "/dashboard/activity", label: "Activity", icon: History },
   { href: "/dashboard/health", label: "System Health", icon: HeartPulse },
-  { href: "/dashboard/settings", label: "Dispatch Settings", icon: Settings },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
