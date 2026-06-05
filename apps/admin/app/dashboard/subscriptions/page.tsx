@@ -1,8 +1,9 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, AreaChart, Area, XAxis, YAxis, CartesianGrid } from "recharts";
 import { TimeRangeFilter, type TimeRangeKey, filterByTimeRange } from "../../../components/TimeRangeFilter";
 
@@ -10,7 +11,15 @@ const CHART_COLORS = ["#b6ff1c", "#2f80ff", "#ffb020", "#ff4d4f", "#8a5cff"];
 
 export default function SubscriptionsPage() {
   const subs = useQuery(api.subscriptions.adminListSubscriptions, {});
+  const updateSub = useMutation(api.subscriptions.adminUpdateSubscription);
   const [range, setRange] = useState<TimeRangeKey>("all");
+
+  const handleStatus = async (
+    subscriptionId: string,
+    status: "active" | "paused" | "canceled",
+  ) => {
+    await updateSub({ subscriptionId: subscriptionId as any, status });
+  };
 
   const allSubs = subs || [];
   const filteredSubs = useMemo(() => filterByTimeRange(allSubs, range), [allSubs, range]);
@@ -186,14 +195,17 @@ export default function SubscriptionsPage() {
                 <th>Plan</th>
                 <th>Status</th>
                 <th>Created</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredSubs.map((s: any) => (
                 <tr key={s._id}>
                   <td>
-                    <div className="font-medium">{s.user?.name || "N/A"}</div>
-                    <div className="text-[12px] text-[var(--muted)]">{s.user?.email}</div>
+                    <Link href={`/dashboard/subscriptions/${s._id}`} className="block hover:underline">
+                      <div className="font-medium">{s.user?.name || "N/A"}</div>
+                      <div className="text-[12px] text-[var(--muted)]">{s.user?.email}</div>
+                    </Link>
                   </td>
                   <td className="capitalize">{s.frequency}</td>
                   <td>
@@ -202,10 +214,47 @@ export default function SubscriptionsPage() {
                     </span>
                   </td>
                   <td className="text-[var(--muted)] text-[13px]">{new Date(s.createdAt).toLocaleDateString()}</td>
+                  <td>
+                    <div className="flex items-center gap-1">
+                      <button
+                        title="Pause"
+                        aria-label="Pause"
+                        onClick={() => handleStatus(s._id, "paused")}
+                        disabled={s.status === "paused" || s.status === "canceled"}
+                        className="px-1.5 py-0.5 text-xs border rounded bg-white text-[#0e2236] disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        ⏸
+                      </button>
+                      <button
+                        title="Resume"
+                        aria-label="Resume"
+                        onClick={() => handleStatus(s._id, "active")}
+                        disabled={s.status === "active" || s.status === "canceled"}
+                        className="px-1.5 py-0.5 text-xs border rounded bg-white text-[#0e2236] disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        ▶
+                      </button>
+                      <button
+                        title="Cancel"
+                        aria-label="Cancel"
+                        onClick={() => handleStatus(s._id, "canceled")}
+                        disabled={s.status === "canceled"}
+                        className="px-1.5 py-0.5 text-xs border rounded bg-white text-red-600 border-red-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        ✕
+                      </button>
+                      <Link
+                        href={`/dashboard/subscriptions/${s._id}`}
+                        className="px-1.5 py-0.5 text-xs border rounded bg-white text-blue-600 ml-1"
+                      >
+                        View
+                      </Link>
+                    </div>
+                  </td>
                 </tr>
               ))}
               {filteredSubs.length === 0 && (
-                <tr><td colSpan={4} className="text-center py-12 text-[var(--muted)]">No subscriptions in this period</td></tr>
+                <tr><td colSpan={5} className="text-center py-12 text-[var(--muted)]">No subscriptions in this period</td></tr>
               )}
             </tbody>
           </table>
