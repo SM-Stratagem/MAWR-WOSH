@@ -46,6 +46,12 @@ export default function SummaryScreen() {
     reset
   } = booking;
   
+  // NOTE: cars/addresses/washTypes are also fetched on the home screen, so
+  // Convex's client cache makes these reads effectively free. They're kept
+  // here because the picker modals need the *full* lists, and the user may
+  // navigate here from anywhere (not just home). If we later add a
+  // "selected items snapshot" to the store, switch this to read from store
+  // when the snapshot is present and only query as a fallback.
   const cars = useQuery(api.cars.listMyCars) || [];
   const addresses = useQuery(api.addresses.listMyAddresses) || [];
   const washTypes = useQuery(api.washTypes.listWashTypes) || [];
