@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { requireRole, STAFF_ROLES, ADMIN_ROLES, getUserByClerkId } from "./authHelpers";
+import { selectClosestAvailableTeam, haversineKm as haversineKmLatLng } from "./teamSelection";
 
 const TEAM_STATUS_TRANSITIONS: Record<string, string[]> = {
   team_assigned: ["on_the_way"],
@@ -18,11 +19,6 @@ function generateBookingNumber(): string {
 
 const AVG_SPEED_KM_PER_MIN = 0.4;
 const SERVICE_TIME_PADDING_MIN = 5;
-
-function isWithinHour(a: number | undefined, b: number | undefined): boolean {
-  if (!a || !b) return false;
-  return Math.abs(a - b) <= 60 * 60 * 1000;
-}
 
 async function resolveZoneForAddress(
   ctx: any,
@@ -44,17 +40,10 @@ async function resolveZoneForAddress(
   return null;
 }
 
+// Thin wrapper around the shared helper to keep the local positional-arg call
+// sites unchanged. Uses haversineKm from teamSelection.ts under the hood.
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return haversineKmLatLng({ lat: lat1, lng: lon1 }, { lat: lat2, lng: lon2 });
 }
 
 async function getOwnedActiveUniqueCarIds(
@@ -443,105 +432,57 @@ export const createBookingDraft = mutation({
     try {
       const booking = await ctx.db.get(bookingId);
       if (booking && address.latitude && address.longitude) {
-        const teams = await ctx.db.query("teams").collect();
-        const availableTeams = teams.filter((t) => t.isActive && t.status === "available" && t.currentLat && t.currentLng);
+        const MAX_PER_WINDOW = parseInt(settingsMap["max_per_window"] || "3", 10);
+        const picked = await selectClosestAvailableTeam(
+          ctx,
+          { lat: address.latitude, lng: address.longitude },
+          scheduledFor,
+          { maxConcurrent: MAX_PER_WINDOW },
+        );
 
-        if (availableTeams.length > 0) {
-          const candidateTeams: { team: typeof availableTeams[0]; distance: number; windowCount: number }[] = [];
+        if (picked) {
+          const bestTeam = await ctx.db.get(picked.teamId);
+          const travelMin = Math.ceil(picked.distanceKm / AVG_SPEED_KM_PER_MIN);
+          const assignedEtaMin = Math.max(5, travelMin + SERVICE_TIME_PADDING_MIN);
+          const assignedEtaMax = assignedEtaMin + Math.max(5, Math.ceil(assignedEtaMin * 0.3));
 
-          for (const team of availableTeams) {
-            if (team.currentLat && team.currentLng) {
-              const R = 6371;
-              const dLat = (address.latitude - team.currentLat) * Math.PI / 180;
-              const dLon = (address.longitude - team.currentLng) * Math.PI / 180;
-              const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(team.currentLat * Math.PI / 180) * Math.cos(address.latitude * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-              const distance = R * c;
+          await ctx.db.patch(bookingId, {
+            status: "team_assigned",
+            assignedTeamId: picked.teamId,
+            etaMin: assignedEtaMin,
+            etaMax: assignedEtaMax,
+          });
+          await ctx.db.patch(picked.teamId, { status: "busy" });
+          await ctx.db.insert("activityLogs", {
+            actorUserId: undefined,
+            actorRole: "system",
+            entityType: "booking",
+            entityId: bookingId.toString(),
+            action: "auto_assigned_team",
+            payload: JSON.stringify({
+              teamName: bestTeam?.name ?? "(unknown)",
+              distanceKm: picked.distanceKm.toFixed(2),
+            }),
+            createdAt: Date.now(),
+          });
 
-              let windowCount = 0;
-              // Use a ±1-hour overlap check against any other team booking with
-              // a concrete scheduledFor — much tighter than the old 4-hour block.
-              if (scheduledFor) {
-                const teamBookings = await ctx.db.query("bookings")
-                  .withIndex("by_assigned_team", (q) => q.eq("assignedTeamId", team._id))
-                  .collect();
+          // Send notification to team — decoupled from this mutation so a
+          // mutation retry doesn't double-fire pushes.
+          await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+            bookingId,
+            event: "new_booking",
+          });
+          // Also notify the customer that a driver is assigned.
+          await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+            bookingId,
+            event: "team_assigned",
+          });
 
-                for (const tb of teamBookings) {
-                  if (isWithinHour(tb.scheduledFor, scheduledFor)) {
-                    windowCount++;
-                  }
-                }
-              }
-
-              candidateTeams.push({ team, distance, windowCount });
-            }
-          }
-
-          const MAX_PER_WINDOW = parseInt(settingsMap["max_per_window"] || "3", 10);
-          const eligibleTeams = candidateTeams.filter((ct) => ct.windowCount < MAX_PER_WINDOW);
-
-          if (eligibleTeams.length > 0) {
-            eligibleTeams.sort((a, b) => a.distance - b.distance);
-            const best = eligibleTeams[0];
-
-            const travelMin = Math.ceil(best.distance / AVG_SPEED_KM_PER_MIN);
-            const assignedEtaMin = Math.max(5, travelMin + SERVICE_TIME_PADDING_MIN);
-            const assignedEtaMax = assignedEtaMin + Math.max(5, Math.ceil(assignedEtaMin * 0.3));
-
-            await ctx.db.patch(bookingId, {
-              status: "team_assigned",
-              assignedTeamId: best.team._id,
-              etaMin: assignedEtaMin,
-              etaMax: assignedEtaMax,
-            });
-            await ctx.db.patch(best.team._id, { status: "busy" });
-            await ctx.db.insert("activityLogs", {
-              actorUserId: undefined,
-              actorRole: "system",
-              entityType: "booking",
-              entityId: bookingId.toString(),
-              action: "auto_assigned_team",
-              payload: JSON.stringify({ teamName: best.team.name, distanceKm: best.distance.toFixed(2) }),
-              createdAt: Date.now(),
-            });
-
-            // Send notification to team — decoupled from this mutation so a
-            // mutation retry doesn't double-fire pushes.
-            await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
-              bookingId,
-              event: "new_booking",
-            });
-            // Also notify the customer that a driver is assigned.
-            await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
-              bookingId,
-              event: "team_assigned",
-            });
-
-            console.log(`[AutoAssign] Assigned ${best.team.name} (${best.distance.toFixed(2)}km, ${best.windowCount} in window) to ${booking.bookingNumber}`);
-          } else if (candidateTeams.length > 0) {
-            candidateTeams.sort((a, b) => a.distance - b.distance);
-            const best = candidateTeams[0];
-            console.log(`[AutoAssign] All teams at capacity for window ${args.scheduledWindow}, assigning ${best.team.name} anyway (over capacity)`);
-
-            await ctx.db.patch(bookingId, {
-              status: "team_assigned",
-              assignedTeamId: best.team._id,
-            });
-            await ctx.db.patch(best.team._id, { status: "busy" });
-            await ctx.db.insert("activityLogs", {
-              actorUserId: undefined,
-              actorRole: "system",
-              entityType: "booking",
-              entityId: bookingId.toString(),
-              action: "auto_assigned_team_over_capacity",
-              payload: JSON.stringify({ teamName: best.team.name, distanceKm: best.distance.toFixed(2) }),
-              createdAt: Date.now(),
-            });
-          } else {
-            console.log(`[AutoAssign] No teams with location found for ${booking.bookingNumber}`);
-          }
+          console.log(
+            `[AutoAssign] Assigned ${bestTeam?.name ?? picked.teamId} (${picked.distanceKm.toFixed(2)}km) to ${booking.bookingNumber}`,
+          );
+        } else {
+          console.log(`[AutoAssign] No suitable team found for ${booking.bookingNumber}`);
         }
       }
     } catch (e) {
@@ -1052,46 +993,32 @@ export const adminAutoReassign = mutation({
       }
     }
 
-    const teams = await ctx.db.query("teams").collect();
-    const candidates = teams.filter(
-      (t) =>
-        t.isActive &&
-        t.status === "available" &&
-        typeof t.currentLat === "number" &&
-        typeof t.currentLng === "number",
+    const picked = await selectClosestAvailableTeam(
+      ctx,
+      { lat: address.latitude, lng: address.longitude },
+      booking.scheduledFor,
     );
-    if (candidates.length === 0) {
+    if (!picked) {
       throw new Error("No available teams with location data");
     }
+    const bestTeam = await ctx.db.get(picked.teamId);
+    if (!bestTeam) throw new Error("No suitable team found");
 
-    let best: { team: (typeof candidates)[number]; distance: number } | null =
-      null;
-    for (const t of candidates) {
-      const distance = haversineKm(
-        t.currentLat!,
-        t.currentLng!,
-        address.latitude,
-        address.longitude,
-      );
-      if (!best || distance < best.distance) best = { team: t, distance };
-    }
-    if (!best) throw new Error("No suitable team found");
-
-    const travelMin = Math.ceil(best.distance / AVG_SPEED_KM_PER_MIN);
+    const travelMin = Math.ceil(picked.distanceKm / AVG_SPEED_KM_PER_MIN);
     const etaMin = Math.max(5, travelMin + SERVICE_TIME_PADDING_MIN);
     const etaMax = etaMin + Math.max(5, Math.ceil(etaMin * 0.3));
 
     await ctx.db.patch(args.bookingId, {
       status: "team_assigned",
-      assignedTeamId: best.team._id,
+      assignedTeamId: picked.teamId,
       etaMin,
       etaMax,
       updatedAt: Date.now(),
     });
-    await ctx.db.patch(best.team._id, { status: "busy" });
+    await ctx.db.patch(picked.teamId, { status: "busy" });
     await ctx.db.insert("bookingAssignments", {
       bookingId: args.bookingId,
-      teamId: best.team._id,
+      teamId: picked.teamId,
       assignedByUserId: adminUser._id,
       assignedAt: Date.now(),
     });
@@ -1102,8 +1029,8 @@ export const adminAutoReassign = mutation({
       entityId: args.bookingId.toString(),
       action: "admin_auto_reassigned",
       payload: JSON.stringify({
-        teamName: best.team.name,
-        distanceKm: best.distance.toFixed(2),
+        teamName: bestTeam.name,
+        distanceKm: picked.distanceKm.toFixed(2),
       }),
       createdAt: Date.now(),
     });
@@ -1114,9 +1041,9 @@ export const adminAutoReassign = mutation({
     });
 
     return {
-      teamId: best.team._id,
-      teamName: best.team.name,
-      distanceKm: best.distance,
+      teamId: picked.teamId,
+      teamName: bestTeam.name,
+      distanceKm: picked.distanceKm,
       etaMin,
       etaMax,
     };
@@ -1146,47 +1073,29 @@ export const adminBulkAutoAssign = mutation({
         skipped++;
         continue;
       }
-      const teams = await ctx.db.query("teams").collect();
-      const candidates = teams.filter(
-        (t) =>
-          t.isActive &&
-          t.status === "available" &&
-          typeof t.currentLat === "number" &&
-          typeof t.currentLng === "number",
+      const picked = await selectClosestAvailableTeam(
+        ctx,
+        { lat: address.latitude, lng: address.longitude },
+        booking.scheduledFor,
       );
-      if (candidates.length === 0) {
+      if (!picked) {
         skipped++;
         continue;
       }
-      let best: { team: (typeof candidates)[number]; distance: number } | null =
-        null;
-      for (const t of candidates) {
-        const distance = haversineKm(
-          t.currentLat!,
-          t.currentLng!,
-          address.latitude,
-          address.longitude,
-        );
-        if (!best || distance < best.distance) best = { team: t, distance };
-      }
-      if (!best) {
-        skipped++;
-        continue;
-      }
-      const travelMin = Math.ceil(best.distance / AVG_SPEED_KM_PER_MIN);
+      const travelMin = Math.ceil(picked.distanceKm / AVG_SPEED_KM_PER_MIN);
       const etaMin = Math.max(5, travelMin + SERVICE_TIME_PADDING_MIN);
       const etaMax = etaMin + Math.max(5, Math.ceil(etaMin * 0.3));
       await ctx.db.patch(booking._id, {
         status: "team_assigned",
-        assignedTeamId: best.team._id,
+        assignedTeamId: picked.teamId,
         etaMin,
         etaMax,
         updatedAt: Date.now(),
       });
-      await ctx.db.patch(best.team._id, { status: "busy" });
+      await ctx.db.patch(picked.teamId, { status: "busy" });
       await ctx.db.insert("bookingAssignments", {
         bookingId: booking._id,
-        teamId: best.team._id,
+        teamId: picked.teamId,
         assignedByUserId: adminUser._id,
         assignedAt: Date.now(),
       });
