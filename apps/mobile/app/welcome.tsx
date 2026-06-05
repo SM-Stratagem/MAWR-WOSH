@@ -1,211 +1,231 @@
 import { useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Dimensions,
-  Image,
+  ImageBackground,
+  Animated,
+  PanResponder,
 } from "react-native";
-import { colors, spacing, borderRadius } from "../constants/theme";
-import * as AppleAuthentication from "expo-apple-authentication";
-import * as WebBrowser from "expo-web-browser";
-import { useWarmUpBrowser } from "../hooks/useWarmUpBrowser";
+import { colors } from "../constants/theme";
 
-WebBrowser.maybeCompleteAuthSession();
+const { width, height } = Dimensions.get("window");
 
-const { width } = Dimensions.get("window");
+const heroImage =
+  "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?w=1200";
 
-const images = [
-  "https://images.unsplash.com/photo-1601362840469-51e4d8d58785?w=800",
-  "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800",
-  "https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?w=800",
-];
+const TRACK_W = width - 48;
+const THUMB = 60;
+const MAX = TRACK_W - THUMB - 16;
 
 export default function WelcomeScreen() {
   const router = useRouter();
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const panX = useRef(new Animated.Value(0)).current;
+  const navRef = useRef(false);
 
-  const handleLogin = useCallback(() => {
-    router.push("/auth");
-  }, [router]);
+  const panResponder = PanResponder.create({
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderMove: (_, gs) => {
+      const x = Math.max(0, Math.min(gs.dx, MAX));
+      panX.setValue(x);
+    },
+    onPanResponderRelease: (_, gs) => {
+      if (gs.dx >= MAX * 0.6 && !navRef.current) {
+        navRef.current = true;
+        Animated.timing(panX, {
+          toValue: MAX,
+          duration: 150,
+          useNativeDriver: false,
+        }).start(() => router.push("/auth"));
+      } else {
+        Animated.spring(panX, {
+          toValue: 0,
+          damping: 20,
+          stiffness: 200,
+          useNativeDriver: false,
+        }).start();
+      }
+    },
+    onPanResponderTerminationRequest: () => true,
+  });
+
+  const textOp = panX.interpolate({
+    inputRange: [0, MAX * 0.3],
+    outputRange: [0, 1],
+    extrapolate: "clamp",
+  });
+
+  const fillW = panX.interpolate({
+    inputRange: [0, MAX],
+    outputRange: ["0%", "100%"],
+    extrapolate: "clamp",
+  });
 
   return (
-    <View style={styles.container}>
-      <View style={styles.carousel}>
-        {images.map((uri, index) => (
-          <Image
-            key={index}
-            source={{ uri }}
-            style={[
-              styles.image,
-              { transform: [{ translateX: (index - currentIndex) * width }] },
-            ]}
-            resizeMode="cover"
-          />
-        ))}
-      </View>
-
+    <ImageBackground
+      source={{ uri: heroImage }}
+      style={styles.container}
+      resizeMode="cover"
+    >
       <View style={styles.overlay} />
 
-      <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.logo}>WASH</Text>
-          <Text style={styles.tagline}>Premium Car Wash</Text>
-        </View>
-
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.appleButton}
-            onPress={handleLogin}
-          >
-            <Text style={styles.appleButtonText}>Continue with Apple</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.googleButton}
-            onPress={handleLogin}
-          >
-            <Text style={styles.googleButtonText}>Continue with Google</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.emailButton}
-            onPress={handleLogin}
-          >
-            <Text style={styles.emailButtonText}>Continue with Email</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.terms}>
-          By continuing, you agree to our Terms of Service and Privacy Policy
-        </Text>
+      {/* Header - top */}
+      <View style={styles.header}>
+        <Text style={styles.logo}>WOSH</Text>
+        <Text style={styles.tagline}>THE STANDARD OF CARE</Text>
       </View>
 
-      <View style={styles.pagination}>
-        {images.map((_, index) => (
-          <View
-            key={index}
-            style={[
-              styles.dot,
-              index === currentIndex && styles.dotActive,
-            ]}
-          />
-        ))}
+      {/* Bottom section */}
+      <View style={styles.bottomSection}>
+        <View style={styles.swipeWrap}>
+          <View style={styles.track} {...panResponder.panHandlers}>
+            <Animated.View
+              style={[styles.trackFill, { width: fillW }]}
+            />
+            <Animated.Text style={[styles.swipeLabel, { opacity: textOp }]}>
+              LOGIN
+            </Animated.Text>
+            <Animated.View
+              style={[styles.thumb, { transform: [{ translateX: panX }] }]}
+              pointerEvents="none"
+            >
+              <View style={styles.tyreOuter}>
+                <View style={styles.tyreInner}>
+                  <Text style={styles.arrow}>→</Text>
+                </View>
+              </View>
+            </Animated.View>
+          </View>
+          <Text style={styles.hint}>Swipe to continue</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.signupBtn}
+          onPress={() => router.push("/auth")}
+        >
+          <Text style={styles.signupText}>
+            Not a Wosher?{" "}
+            <Text style={styles.signupBold}>Sign up</Text>
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.dots}>
+          <View style={[styles.dot, styles.dotActive]} />
+          <View style={styles.dot} />
+          <View style={styles.dot} />
+        </View>
+
+        <View style={styles.footer}>
+          <View style={styles.line} />
+          <TouchableOpacity
+            style={styles.teamBtn}
+            onPress={() => router.push("/team/login")}
+          >
+            <Text style={styles.teamText}>TEAM LOGIN</Text>
+          </TouchableOpacity>
+          <Text style={styles.legal}>AUTHORIZED ACCESS ONLY. TERMS APPLY.</Text>
+        </View>
       </View>
-    </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  carousel: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  image: {
-    position: "absolute",
-    width: width * 1.5,
-    height: "100%",
-  },
-  overlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(10, 10, 15, 0.7)",
-  },
-  content: {
-    flex: 1,
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xxl + 40,
-    paddingBottom: spacing.xl,
-  },
+  container: { flex: 1, width, height },
+  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(14,34,54,0.7)" },
   header: {
-    alignItems: "center",
-    marginTop: spacing.xxl,
-  },
-  logo: {
-    fontSize: 48,
-    fontWeight: "700",
-    color: colors.text_primary,
-    letterSpacing: 8,
-  },
-  tagline: {
-    fontSize: 16,
-    color: colors.primary,
-    marginTop: spacing.sm,
-  },
-  actions: {
-    gap: spacing.md,
-  },
-  appleButton: {
-    backgroundColor: colors.text_primary,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    alignItems: "center",
-  },
-  appleButtonText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  googleButton: {
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: colors.ghost_border,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    alignItems: "center",
-  },
-  googleButtonText: {
-    color: colors.text_primary,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  emailButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: spacing.md,
-    borderRadius: borderRadius.md,
-    alignItems: "center",
-  },
-  emailButtonText: {
-    color: colors.text_primary,
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  terms: {
-    color: colors.text_secondary,
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: spacing.md,
-  },
-  pagination: {
     position: "absolute",
-    bottom: 120,
+    top: 120,
     left: 0,
     right: 0,
-    flexDirection: "row",
+    alignItems: "center",
+  },
+  logo: { fontSize: 96, fontWeight: "700", color: "#fff", letterSpacing: -3, lineHeight: 86 },
+  tagline: { fontSize: 16, fontWeight: "500", color: "rgba(207,224,255,0.9)", letterSpacing: 4, marginTop: 8 },
+  bottomSection: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 24,
+    paddingBottom: 48,
+    alignItems: "center",
+  },
+  swipeWrap: { width: "100%", alignItems: "center", marginBottom: 12 },
+  track: {
+    width: TRACK_W,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.3)",
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  trackFill: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    height: "100%",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 38,
+  },
+  swipeLabel: {
+    position: "absolute",
+    alignSelf: "center",
+    top: 20,
+    bottom: 0,
     justifyContent: "center",
-    gap: spacing.sm,
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "700",
+    letterSpacing: 5,
   },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.surface_container_high,
+  thumb: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    width: THUMB,
+    height: THUMB,
+    borderRadius: 30,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  dotActive: {
-    backgroundColor: colors.primary,
-    width: 24,
+  tyreOuter: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
   },
+  tyreInner: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  arrow: { fontSize: 16, color: "#fff", fontWeight: "700" },
+  hint: { color: "rgba(255,255,255,0.4)", fontSize: 11, marginTop: 8, letterSpacing: 1 },
+  signupBtn: { paddingVertical: 12 },
+  signupText: { color: "rgba(255,255,255,0.7)", fontSize: 15 },
+  signupBold: { fontWeight: "700", color: "#fff", borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.3)" },
+  dots: { flexDirection: "row", gap: 8, marginVertical: 16 },
+  dot: { width: 8, height: 2, borderRadius: 1, backgroundColor: "rgba(255,255,255,0.2)" },
+  dotActive: { width: 32, backgroundColor: "#fff" },
+  footer: { width: "100%", alignItems: "center" },
+  line: { width: "100%", height: 1, borderStyle: "dotted", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", marginBottom: 20 },
+  teamBtn: { paddingVertical: 12 },
+  teamText: { color: "rgba(255,255,255,0.5)", fontSize: 10, fontWeight: "500", letterSpacing: 3 },
+  legal: { color: "rgba(255,255,255,0.3)", fontSize: 11, letterSpacing: 2, marginTop: 8 },
 });

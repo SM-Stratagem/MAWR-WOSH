@@ -11,6 +11,7 @@ import {
   Dimensions,
 } from "react-native";
 import { useQuery } from "convex/react";
+import { api } from "../convex/_generated/api";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, spacing, borderRadius } from "../constants/theme";
 import { useBookingStore } from "../lib/store";
@@ -33,19 +34,31 @@ export default function SummaryScreen() {
   const [showWashPicker, setShowWashPicker] = useState(false);
   
   const booking = useBookingStore();
-  const { 
-    selectedWashType, 
-    selectedCarIds, 
-    selectedAddressId, 
+  const {
+    selectedWashType,
+    selectedCarIds,
+    selectedAddressId,
     subscriptionPlan,
+    scheduledWindow,
+    scheduledDate,
     getDiscountedPrice,
     setBookingData,
-    reset 
+    reset
   } = booking;
   
-  const cars = useQuery("cars:listMyCars" as any) || [];
-  const addresses = useQuery("addresses:listMyAddresses" as any) || [];
-  const washTypes = useQuery("washTypes:listWashTypes" as any) || [];
+  // NOTE: cars/addresses/washTypes are also fetched on the home screen, so
+  // Convex's client cache makes these reads effectively free. They're kept
+  // here because the picker modals need the *full* lists, and the user may
+  // navigate here from anywhere (not just home). If we later add a
+  // "selected items snapshot" to the store, switch this to read from store
+  // when the snapshot is present and only query as a fallback.
+  const cars = useQuery(api.cars.listMyCars) || [];
+  const addresses = useQuery(api.addresses.listMyAddresses) || [];
+  const washTypes = useQuery(api.washTypes.listWashTypes) || [];
+  const currencySetting = useQuery(api.settings.getPublic, { key: "currency" });
+  const discountPctSetting = useQuery(api.settings.getPublic, { key: "subscription_discount_pct" });
+  const currency = currencySetting ?? "AED";
+  const subscriptionDiscountPct = discountPctSetting ? Number(discountPctSetting) : 15;
   
   // Get selected data
   const selectedCars = cars.filter((c: any) => selectedCarIds.includes(c._id));
@@ -86,8 +99,9 @@ export default function SummaryScreen() {
   const basePrice = selectedWashType?.basePrice || 0;
   const carCount = selectedCarIds.length || 1;
   const subtotal = basePrice * carCount;
-  const discountAmount = subscriptionPlan && subscriptionPlan !== "one_time" 
-    ? Math.round(subtotal * 0.15) 
+  const isSubscriptionDiscount = subscriptionPlan && subscriptionPlan !== "one_time";
+  const discountAmount = isSubscriptionDiscount
+    ? Math.round(subtotal * (subscriptionDiscountPct / 100))
     : 0;
   const total = subtotal - discountAmount;
   
@@ -98,14 +112,12 @@ export default function SummaryScreen() {
   const handleAddLocation = () => {
     router.push("/location");
   };
+
+  const handleSelectTime = () => {
+    router.push("/time" as any);
+  };
   
-  const handleConfirm = () => {
-    // Debug logging
-    console.log("[Booking Debug] selectedCarIds:", selectedCarIds);
-    console.log("[Booking Debug] selectedAddressId:", selectedAddressId);
-    console.log("[Booking Debug] selectedWashType:", selectedWashType);
-    console.log("[Booking Debug] hasCar:", hasCar, "hasLocation:", hasLocation);
-    
+   const handleConfirm = () => {
     if (!hasCar || selectedCarIds.length === 0) {
       Alert.alert("Car Required", "Please select at least one car");
       return;
@@ -116,6 +128,10 @@ export default function SummaryScreen() {
     }
     if (!selectedWashType) {
       Alert.alert("Error", "Please select a wash type");
+      return;
+    }
+    if (!scheduledWindow || !scheduledDate) {
+      Alert.alert("Time Required", "Please select a time slot for your booking");
       return;
     }
     
@@ -156,14 +172,14 @@ export default function SummaryScreen() {
                         </Text>
                       </View>
                       <View style={styles.washTypeHeaderRight}>
-                        <Text style={styles.pickerPrice}>{basePrice} AED</Text>
+                        <Text style={styles.pickerPrice}>{basePrice} {currency}</Text>
                         <Ionicons name="chevron-down" size={20} color={colors.primary} style={{ marginLeft: 8 }} />
                       </View>
                     </View>
                     {subscriptionPlan && subscriptionPlan !== "one_time" && (
                       <View style={styles.pickerSubtextRow}>
                         <View style={styles.subscriptionBadgeSmall}>
-                          <Text style={styles.subscriptionTextSmall}>{subLabel} • 15% off</Text>
+                          <Text style={styles.subscriptionTextSmall}>{subLabel} • {subscriptionDiscountPct}% off</Text>
                         </View>
                       </View>
                     )}
@@ -229,7 +245,7 @@ export default function SummaryScreen() {
                                 styles.washTypeOptionPriceText,
                                 isSelected && styles.washTypeOptionTextSelected
                               ]}>
-                                {washType.basePrice} AED
+                                {washType.basePrice} {currency}
                               </Text>
                               {isSelected && (
                                 <Ionicons name="checkmark-circle" size={20} color={colors.on_primary} style={{ marginLeft: 8 }} />
@@ -481,25 +497,55 @@ export default function SummaryScreen() {
             </TouchableOpacity>
           )}
         </View>
-        
+
+        {/* Time Window */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Schedule</Text>
+          <TouchableOpacity style={styles.addCard} onPress={handleSelectTime}>
+            {scheduledWindow && scheduledDate ? (
+              <>
+                <Text style={styles.addCardText}>
+                  {new Date(scheduledDate).toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </Text>
+                <Text style={styles.addCardSubtext}>
+                  {scheduledWindow === "morning"
+                    ? "Morning (8 AM - 12 PM)"
+                    : scheduledWindow === "afternoon"
+                    ? "Afternoon (12 PM - 4 PM)"
+                    : "Evening (4 PM - 8 PM)"}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.addCardText}>+ Select Time Window</Text>
+                <Text style={styles.addCardSubtext}>Required to continue</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {/* Pricing Summary */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Price Summary</Text>
           <View style={styles.card}>
             <View style={styles.priceRow}>
               <Text style={styles.priceLabel}>{selectedWashType?.name} x {carCount}</Text>
-              <Text style={styles.priceValue}>{subtotal} AED</Text>
+              <Text style={styles.priceValue}>{subtotal} {currency}</Text>
             </View>
             {discountAmount > 0 && (
               <View style={styles.priceRow}>
-                <Text style={styles.discountLabel}>Subscription Discount (15%)</Text>
-                <Text style={styles.discountValue}>-{discountAmount} AED</Text>
+                <Text style={styles.discountLabel}>Subscription Discount ({subscriptionDiscountPct}%)</Text>
+                <Text style={styles.discountValue}>-{discountAmount} {currency}</Text>
               </View>
             )}
             <View style={styles.divider} />
             <View style={styles.priceRow}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>{total} AED</Text>
+              <Text style={styles.totalValue}>{total} {currency}</Text>
             </View>
           </View>
         </View>

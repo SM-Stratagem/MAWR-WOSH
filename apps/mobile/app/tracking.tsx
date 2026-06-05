@@ -6,9 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
+  Linking,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useQuery } from "convex/react";
+import MapView, { Marker } from "react-native-maps";
+import { api } from "../convex/_generated/api";
 import { colors, spacing, borderRadius, bookingStatuses } from "../constants/theme";
 
 const STATUS_STEPS = [
@@ -24,14 +28,28 @@ export default function TrackingScreen() {
   const router = useRouter();
   const { bookingId } = useLocalSearchParams();
 
-  const booking = useQuery("bookings:getMyBookingDetail" as any, {
-    bookingId: bookingId as string,
-  });
+  const booking = useQuery(
+    api.bookings.getMyBookingDetail,
+    bookingId ? { bookingId: bookingId as any } : "skip"
+  );
 
-  if (!booking) {
+  const liveTracking = useQuery(
+    api.bookings.getLiveTracking,
+    bookingId ? { bookingId: bookingId as any } : "skip"
+  );
+
+  if (booking === undefined) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (booking === null) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={{ color: colors.text_secondary }}>Booking not found</Text>
       </View>
     );
   }
@@ -81,6 +99,10 @@ export default function TrackingScreen() {
           </View>
         </View>
 
+        {!isCanceled && !isCompleted && !isRejected && !isBooked && liveTracking && (
+          <LiveTrackingMap data={liveTracking} />
+        )}
+
         {!isCanceled && !isCompleted && !isRejected && !isBooked && (
           <View style={styles.timeline}>
             <Text style={styles.sectionTitle}>Status</Text>
@@ -126,9 +148,9 @@ export default function TrackingScreen() {
 
         {isBooked && (
           <View style={styles.pendingCard}>
-            <Text style={styles.pendingTitle}>Awaiting Confirmation</Text>
+            <Text style={styles.pendingTitle}>Booking Received</Text>
             <Text style={styles.pendingText}>
-              Your booking is pending admin approval. You'll be notified once confirmed.
+              Your booking has been received and will move to dispatch once the team is ready.
             </Text>
           </View>
         )}
@@ -164,6 +186,18 @@ export default function TrackingScreen() {
             <Text style={styles.completedText}>
               Thank you for using our service!
             </Text>
+            {booking.photos && booking.photos.filter((p: any) => p.type === "completion").length > 0 && (
+              <View style={styles.completionPhotosSection}>
+                <Text style={styles.completionPhotosLabel}>Wash Photos</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  {booking.photos
+                    .filter((p: any) => p.type === "completion")
+                    .map((photo: any, i: number) => (
+                      <Image key={i} source={{ uri: photo.url }} style={styles.completionPhoto} />
+                    ))}
+                </ScrollView>
+              </View>
+            )}
           </View>
         )}
 
@@ -218,6 +252,138 @@ export default function TrackingScreen() {
     </View>
   );
 }
+
+function LiveTrackingMap({ data }: { data: any }) {
+  const dest = data.destination;
+  const team = data.team;
+  const hasTeamLocation =
+    team && typeof team.currentLat === "number" && typeof team.currentLng === "number";
+
+  const initialRegion = hasTeamLocation
+    ? {
+        latitude: (team.currentLat + dest.latitude) / 2,
+        longitude: (team.currentLng + dest.longitude) / 2,
+        latitudeDelta: Math.max(0.02, Math.abs(team.currentLat - dest.latitude) * 2.5),
+        longitudeDelta: Math.max(0.02, Math.abs(team.currentLng - dest.longitude) * 2.5),
+      }
+    : {
+        latitude: dest.latitude,
+        longitude: dest.longitude,
+        latitudeDelta: 0.03,
+        longitudeDelta: 0.03,
+      };
+
+  const lastSeenSec = team?.lastLocationAt
+    ? Math.round((Date.now() - team.lastLocationAt) / 1000)
+    : null;
+
+  const etaText =
+    data.liveEtaMin && data.liveEtaMax
+      ? `${data.liveEtaMin}–${data.liveEtaMax} min`
+      : data.storedEtaMin && data.storedEtaMax
+        ? `${data.storedEtaMin}–${data.storedEtaMax} min`
+        : "—";
+
+  return (
+    <View style={mapStyles.wrap}>
+      <View style={mapStyles.headerRow}>
+        <View>
+          <Text style={mapStyles.label}>LIVE ETA</Text>
+          <Text style={mapStyles.eta}>{etaText}</Text>
+        </View>
+        {hasTeamLocation && data.distanceKm != null && (
+          <View style={mapStyles.distBlock}>
+            <Text style={mapStyles.label}>DISTANCE</Text>
+            <Text style={mapStyles.dist}>{data.distanceKm.toFixed(1)} KM</Text>
+          </View>
+        )}
+      </View>
+      <MapView
+        style={mapStyles.map}
+        initialRegion={initialRegion}
+        region={initialRegion}
+        showsUserLocation={false}
+        scrollEnabled
+        zoomEnabled
+      >
+        <Marker
+          coordinate={{ latitude: dest.latitude, longitude: dest.longitude }}
+          title="Your location"
+          description={dest.formattedAddress}
+          pinColor="red"
+        />
+        {hasTeamLocation && (
+          <Marker
+            coordinate={{ latitude: team.currentLat, longitude: team.currentLng }}
+            title={team.name}
+            description={team.status}
+            pinColor="green"
+          />
+        )}
+      </MapView>
+      {!hasTeamLocation && (
+        <Text style={mapStyles.noGps}>
+          Waiting for team to share location...
+        </Text>
+      )}
+      {hasTeamLocation && lastSeenSec != null && (
+        <Text style={mapStyles.lastSeen}>
+          {team.name} · updated {lastSeenSec}s ago
+        </Text>
+      )}
+    </View>
+  );
+}
+
+const mapStyles = StyleSheet.create({
+  wrap: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: spacing.md,
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: colors.text_secondary,
+    letterSpacing: 1.4,
+    marginBottom: 2,
+  },
+  eta: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: colors.primary,
+  },
+  distBlock: { alignItems: "flex-end" },
+  dist: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: colors.text_primary,
+  },
+  map: {
+    width: "100%",
+    height: 220,
+    borderRadius: borderRadius.md,
+  },
+  noGps: {
+    marginTop: spacing.sm,
+    fontSize: 12,
+    color: colors.text_secondary,
+    textAlign: "center",
+  },
+  lastSeen: {
+    marginTop: spacing.sm,
+    fontSize: 11,
+    color: colors.text_secondary,
+    textAlign: "center",
+  },
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -460,5 +626,21 @@ const styles = StyleSheet.create({
     color: colors.text_primary,
     textAlign: "center",
     lineHeight: 20,
+  },
+  completionPhotosSection: {
+    marginTop: spacing.lg,
+  },
+  completionPhotosLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.success,
+    marginBottom: spacing.sm,
+  },
+  completionPhoto: {
+    width: 200,
+    height: 150,
+    borderRadius: borderRadius.md,
+    marginRight: spacing.sm,
+    resizeMode: "cover",
   },
 });

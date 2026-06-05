@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireRole, STAFF_ROLES, SUPERADMIN_ONLY } from "./authHelpers";
 
 export const getSetting = query({
   args: { key: v.string() },
@@ -13,10 +14,28 @@ export const getSetting = query({
   },
 });
 
+export const getPublic = query({
+  args: { key: v.string() },
+  handler: async (ctx, args) => {
+    const ALLOWED = new Set([
+      "subscription_discount_pct",
+      "default_service_fee_pct",
+      "currency",
+    ]);
+    if (!ALLOWED.has(args.key)) return null;
+    const row = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    return row?.value ?? null;
+  },
+});
+
 export const listSettings = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("systemSettings").collect();
+    await requireRole(ctx, STAFF_ROLES);
+    return await ctx.db.query("systemSettings").take(100);
   },
 });
 
@@ -26,17 +45,7 @@ export const adminUpdateSystemSetting = mutation({
     value: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || adminUser.role !== "superadmin") {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, SUPERADMIN_ONLY);
 
     const existing = await ctx.db
       .query("systemSettings")
@@ -67,32 +76,5 @@ export const adminUpdateSystemSetting = mutation({
       payload: JSON.stringify({ value: args.value }),
       createdAt: Date.now(),
     });
-  },
-});
-
-export const seedDefaultSettings = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const defaults = [
-      { key: "default_eta_min", value: "30" },
-      { key: "default_eta_max", value: "45" },
-      { key: "service_fee", value: "0" },
-      { key: "currency", value: "AED" },
-    ];
-
-    for (const setting of defaults) {
-      const existing = await ctx.db
-        .query("systemSettings")
-        .withIndex("by_key", (q) => q.eq("key", setting.key))
-        .first();
-
-      if (!existing) {
-        await ctx.db.insert("systemSettings", {
-          key: setting.key,
-          value: setting.value,
-          updatedAt: Date.now(),
-        });
-      }
-    }
   },
 });

@@ -15,6 +15,8 @@ interface BookingState {
   frequency: string; // keep for backward compat
   total: number;
   bookingId: string | null;
+  scheduledWindow: "morning" | "afternoon" | "evening" | null;
+  scheduledDate: number | null;
   setBookingData: (data: Partial<Omit<BookingState, 'setBookingData' | 'getDiscountedPrice'>>) => void;
   setSubscriptionPlan: (plan: "weekly" | "biweekly" | "monthly" | "one_time" | null) => void;
   getDiscountedPrice: (basePrice: number) => number;
@@ -30,6 +32,8 @@ export const useBookingStore = create<BookingState>((set, get) => ({
   frequency: "one_time",
   total: 0,
   bookingId: null,
+  scheduledWindow: null,
+  scheduledDate: null,
 
   setBookingData: (data) => set((state) => ({ ...state, ...data })),
 
@@ -55,6 +59,8 @@ export const useBookingStore = create<BookingState>((set, get) => ({
       frequency: "one_time",
       total: 0,
       bookingId: null,
+      scheduledWindow: null,
+      scheduledDate: null,
     }),
 }));
 

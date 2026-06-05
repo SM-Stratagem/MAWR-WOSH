@@ -1,63 +1,48 @@
-import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Tabs, usePathname, useRouter } from "expo-router";
+import { View } from "react-native";
 import { colors } from "../../constants/theme";
+import { ModernBottomNav, NavItem } from "../../components/ModernBottomNav";
+
+const navItems: NavItem[] = [
+  { label: "Home", icon: "home-outline", activeIcon: "home", route: "index" },
+  { label: "Garage", icon: "car-outline", activeIcon: "car", route: "cars" },
+  { label: "Bookings", icon: "calendar-outline", activeIcon: "calendar", route: "bookings" },
+  { label: "My Plan", icon: "card-outline", activeIcon: "card", route: "subscriptions" },
+  { label: "Profile", icon: "person-outline", activeIcon: "person", route: "profile" },
+];
 
 export default function TabLayout() {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const currentRoute = pathname.split("/").pop() || "index";
+
+  const handleNavigate = (route: string) => {
+    router.push("/" + route as any);
+  };
+
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: colors.surface_container,
-          borderTopWidth: 0,
-          height: 80,
-          paddingBottom: 20,
-          paddingTop: 10,
-          elevation: 0,
-        },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.text_secondary,
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: "500",
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} />,
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: { display: "none" },
+          tabBarButton: () => null,
         }}
+      >
+        <Tabs.Screen name="index" />
+        <Tabs.Screen name="cars" />
+        <Tabs.Screen name="bookings" />
+        <Tabs.Screen name="subscriptions" />
+        <Tabs.Screen name="profile" />
+      </Tabs>
+
+      <ModernBottomNav
+        items={navItems}
+        activeRoute={currentRoute}
+        onNavigate={handleNavigate}
+        accentColor={colors.accent}
       />
-      <Tabs.Screen
-        name="cars"
-        options={{
-          title: "My Cars",
-          tabBarIcon: ({ color, size }) => <Ionicons name="car-sport" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="bookings"
-        options={{
-          title: "Bookings",
-          tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="subscriptions"
-        options={{
-          title: "My Plan",
-          tabBarIcon: ({ color, size }) => <Ionicons name="repeat" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color, size }) => <Ionicons name="person" size={size} color={color} />,
-        }}
-      />
-    </Tabs>
+    </View>
   );
 }

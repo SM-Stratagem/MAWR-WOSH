@@ -1,7 +1,18 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireRole, ADMIN_ROLES } from "./authHelpers";
 
 export const listWashTypes = query({
+  args: {},
+  handler: async (ctx) => {
+    const washTypes = await ctx.db.query("washTypes").collect();
+    return washTypes
+      .filter((w) => w.isActive)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  },
+});
+
+export const listAllWashTypes = query({
   args: {},
   handler: async (ctx) => {
     const washTypes = await ctx.db.query("washTypes").collect();
@@ -25,21 +36,13 @@ export const adminUpsertWashType = mutation({
     basePrice: v.number(),
     currency: v.string(),
     durationMins: v.number(),
+    imageUrl: v.optional(v.string()),
+    features: v.optional(v.array(v.string())),
     isActive: v.boolean(),
     sortOrder: v.number(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
 
     if (args.washTypeId) {
       const { washTypeId, ...updates } = args;
@@ -59,7 +62,7 @@ export const adminUpsertWashType = mutation({
     } else {
       const existing = await ctx.db
         .query("washTypes")
-        .filter((q) => q.eq(q.field("key"), args.key))
+        .withIndex("by_key", (q) => q.eq("key", args.key))
         .first();
 
       if (existing) {
@@ -86,17 +89,7 @@ export const adminUpsertWashType = mutation({
 export const adminDeleteWashType = mutation({
   args: { washTypeId: v.id("washTypes") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
 
     await ctx.db.patch(args.washTypeId, { isActive: false });
 
@@ -107,47 +100,6 @@ export const adminDeleteWashType = mutation({
       entityId: args.washTypeId.toString(),
       action: "deleted",
       createdAt: Date.now(),
-    });
-  },
-});
-
-export const seedWashTypes = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const existing = await ctx.db.query("washTypes").first();
-    if (existing) return;
-
-    await ctx.db.insert("washTypes", {
-      key: "basic",
-      name: "Basic Wash",
-      description: "Quick exterior clean",
-      basePrice: 35,
-      currency: "AED",
-      durationMins: 30,
-      isActive: true,
-      sortOrder: 1,
-    });
-
-    await ctx.db.insert("washTypes", {
-      key: "premium",
-      name: "Premium Wash",
-      description: "More thorough exterior and finishing",
-      basePrice: 55,
-      currency: "AED",
-      durationMins: 45,
-      isActive: true,
-      sortOrder: 2,
-    });
-
-    await ctx.db.insert("washTypes", {
-      key: "full_detail",
-      name: "Full Detail",
-      description: "High-end full service package",
-      basePrice: 95,
-      currency: "AED",
-      durationMins: 75,
-      isActive: true,
-      sortOrder: 3,
     });
   },
 });

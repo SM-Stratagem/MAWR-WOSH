@@ -45,13 +45,16 @@ export const createAddress = mutation({
     if (!user) throw new Error("User not found");
 
     if (args.isDefault) {
-      const existingAddresses = await ctx.db
+      // Use the (userId, isDefault) index to fetch just the current default
+      // (if any) instead of scanning the whole address list.
+      const prev = await ctx.db
         .query("addresses")
-        .withIndex("by_user_id", (q) => q.eq("userId", user._id))
-        .collect();
-
-      for (const addr of existingAddresses) {
-        await ctx.db.patch(addr._id, { isDefault: false });
+        .withIndex("by_user_id_and_default", (q) =>
+          q.eq("userId", user._id).eq("isDefault", true),
+        )
+        .first();
+      if (prev) {
+        await ctx.db.patch(prev._id, { isDefault: false });
       }
     }
 
@@ -111,15 +114,14 @@ export const updateAddress = mutation({
     if (!address || address.userId !== user._id) throw new Error("Address not found");
 
     if (args.isDefault) {
-      const existingAddresses = await ctx.db
+      const prev = await ctx.db
         .query("addresses")
-        .withIndex("by_user_id", (q) => q.eq("userId", user._id))
-        .collect();
-
-      for (const addr of existingAddresses) {
-        if (addr._id !== args.addressId) {
-          await ctx.db.patch(addr._id, { isDefault: false });
-        }
+        .withIndex("by_user_id_and_default", (q) =>
+          q.eq("userId", user._id).eq("isDefault", true),
+        )
+        .first();
+      if (prev && prev._id !== args.addressId) {
+        await ctx.db.patch(prev._id, { isDefault: false });
       }
     }
 
@@ -154,13 +156,18 @@ export const setDefaultAddress = mutation({
     const address = await ctx.db.get(args.addressId);
     if (!address || address.userId !== user._id) throw new Error("Address not found");
 
-    const existingAddresses = await ctx.db
+    // Clear the previous default (if any), then mark the new one.
+    const prev = await ctx.db
       .query("addresses")
-      .withIndex("by_user_id", (q) => q.eq("userId", user._id))
-      .collect();
-
-    for (const addr of existingAddresses) {
-      await ctx.db.patch(addr._id, { isDefault: addr._id === args.addressId });
+      .withIndex("by_user_id_and_default", (q) =>
+        q.eq("userId", user._id).eq("isDefault", true),
+      )
+      .first();
+    if (prev && prev._id !== args.addressId) {
+      await ctx.db.patch(prev._id, { isDefault: false });
+    }
+    if (!address.isDefault) {
+      await ctx.db.patch(args.addressId, { isDefault: true });
     }
 
     await ctx.db.patch(user._id, { defaultAddressId: args.addressId });

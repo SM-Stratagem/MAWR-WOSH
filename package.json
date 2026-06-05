@@ -8,16 +8,23 @@
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
     "codegen": "npx convex codegen",
-    "deploy": "npx convex deploy"
+    "deploy": "npx convex deploy",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
     "convex": "^1.35.1",
     "stripe": "^22.0.1"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^25.6.0",
     "concurrently": "^8.2.2",
+    "convex-test": "^0.0.53",
     "tsx": "^4.21.0",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.8"
   }
 }

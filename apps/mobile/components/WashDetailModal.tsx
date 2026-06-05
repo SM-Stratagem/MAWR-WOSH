@@ -17,7 +17,7 @@ const { width } = Dimensions.get("window");
 
 interface WashDetailModalProps {
   visible: boolean;
-  washType: { key: string; name: string; basePrice: number } | null;
+  washType: { key: string; name: string; basePrice: number; description?: string; imageUrl?: string; features?: string[]; durationMins?: number } | null;
   onClose: () => void;
   onBookNow: () => void;
 }
@@ -27,8 +27,15 @@ export function WashDetailModal({ visible, washType, onClose, onBookNow }: WashD
   
   if (!washType) return null;
   
-  const details = washTypeDetails[washType.key];
-  if (!details) return null;
+  const fallbackDetails = washTypeDetails[washType.key] || {
+    imageUrl: "",
+    fullDescription: washType.description || "",
+    features: [],
+  };
+  
+  const imageUrl = washType.imageUrl || fallbackDetails.imageUrl;
+  const fullDescription = washType.description || fallbackDetails.fullDescription;
+  const features = washType.features && washType.features.length > 0 ? washType.features : fallbackDetails.features;
   
   const displayPrice = getDiscountedPrice(washType.basePrice);
   const hasDiscount = subscriptionPlan && subscriptionPlan !== "one_time";
@@ -47,21 +54,25 @@ export function WashDetailModal({ visible, washType, onClose, onBookNow }: WashD
           </TouchableOpacity>
           
           <ScrollView showsVerticalScrollIndicator={false}>
-            <Image source={{ uri: details.imageUrl }} style={styles.image} />
+            {imageUrl ? (
+              <Image source={{ uri: imageUrl }} style={styles.image} />
+            ) : null}
             
             <View style={styles.content}>
               <Text style={styles.title}>{washType.name}</Text>
-              <Text style={styles.description}>{details.fullDescription}</Text>
+              <Text style={styles.description}>{fullDescription}</Text>
               
-              <View style={styles.featuresSection}>
-                <Text style={styles.sectionTitle}>What's Included</Text>
-                {details.features.map((feature, index) => (
-                  <View key={index} style={styles.featureRow}>
-                    <Text style={styles.checkmark}>✓</Text>
-                    <Text style={styles.featureText}>{feature}</Text>
-                  </View>
-                ))}
-              </View>
+              {features.length > 0 && (
+                <View style={styles.featuresSection}>
+                  <Text style={styles.sectionTitle}>What's Included</Text>
+                  {features.map((feature: string, index: number) => (
+                    <View key={index} style={styles.featureRow}>
+                      <Text style={styles.checkmark}>✓</Text>
+                      <Text style={styles.featureText}>{feature}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
               
               <View style={styles.subscriptionSection}>
                 <Text style={styles.sectionTitle}>Subscribe & Save (15% Off)</Text>
@@ -138,7 +149,7 @@ const styles = StyleSheet.create({
     top: spacing.lg,
     right: spacing.lg,
     zIndex: 10,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(247,248,244,0.2)",
     borderRadius: borderRadius.full,
     width: 32,
     height: 32,

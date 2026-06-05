@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WOSH — Brand Kit v1.0</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="brand-kit/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--wosh-bg);
+    color: var(--wosh-ink);
+    font-family: var(--wosh-font-ui);
+    font-size: var(--wosh-fs-body);
+    line-height: var(--wosh-lh-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* --- Page rails --- */
+  .page { max-width: 1280px; margin: 0 auto; padding: 64px 56px 120px; }
+  .rule { height: 1px; background: var(--wosh-ink); opacity: 0.85; margin: 0; }
+  .hair { height: 1px; background: var(--wosh-line); margin: 0; }
+
+  /* --- Masthead --- */
+  .mast {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    padding-bottom: 24px;
+  }
+  .mast .left .eyebrow { display: flex; gap: 16px; }
+  .wordmark {
+    font-family: var(--wosh-font-display);
+    font-weight: 700;
+    font-size: 140px;
+    line-height: 0.85;
+    letter-spacing: -0.04em;
+    margin: 12px 0 0;
+  }
+  .mast .right {
+    text-align: right;
+    font-family: var(--wosh-font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--wosh-ink-soft);
+  }
+  .mast .right b { color: var(--wosh-ink); font-weight: 500; }
+
+  .lede {
+    margin: 28px 0 0;
+    display: grid;
+    grid-template-columns: 240px 1fr 240px;
+    gap: 48px;
+    padding-bottom: 18px;
+  }
+  .lede h2 {
+    font-family: var(--wosh-font-display);
+    font-weight: 500;
+    font-size: 28px;
+    line-height: 1.1;
+    margin: 0;
+    grid-column: 2;
+    max-width: 720px;
+    letter-spacing: -0.01em;
+  }
+  .lede .meta { font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  .lede .meta:last-child { text-align: right; }
+
+  /* --- Section --- */
+  section { margin-top: 64px; }
+  .sec-head {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    align-items: baseline;
+    gap: 24px;
+    padding-bottom: 16px;
+  }
+  .sec-no { font-family: var(--wosh-font-mono); font-size: 11px; letter-spacing: 0.14em; color: var(--wosh-ink-soft); }
+  .sec-title { font-family: var(--wosh-font-display); font-weight: 700; font-size: 36px; letter-spacing: -0.02em; line-height: 1; margin: 0; }
+  .sec-hint { font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  .sec-body { padding-top: 28px; }
+
+  /* --- Generic grid helpers --- */
+  .row { display: grid; gap: 16px; }
+  .cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .cols-6 { grid-template-columns: repeat(6, 1fr); }
+
+  /* --- Swatches --- */
+  .swatch {
+    background: var(--wosh-paper);
+    border: 1px solid var(--wosh-line);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .swatch .chip {
+    height: 132px;
+    border-bottom: 1px solid var(--wosh-line);
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 14px;
+  }
+  .swatch .chip .tok { font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+  .swatch .chip .hex { font-family: var(--wosh-font-mono); font-size: 11px; letter-spacing: 0.06em; align-self: flex-end; }
+  .swatch .meta { padding: 12px 14px; }
+  .swatch .name { font-weight: 500; font-size: 15px; }
+  .swatch .use { font-size: 12px; color: var(--wosh-ink-soft); margin-top: 4px; }
+
+  /* --- Type spec table --- */
+  .type-spec { border-top: 1px solid var(--wosh-ink); }
+  .type-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 220px;
+    gap: 24px;
+    align-items: center;
+    padding: 20px 0;
+    border-bottom: 1px solid var(--wosh-line);
+  }
+  .type-row .tag { font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  .type-row .demo { color: var(--wosh-ink); }
+  .type-row .spec { font-family: var(--wosh-font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--wosh-ink-soft); text-align: right; }
+  .type-row .spec b { color: var(--wosh-ink); font-weight: 500; }
+  .demo-hero    { font-family: var(--wosh-font-display); font-weight: 700; font-size: 96px; line-height: 0.9; letter-spacing: -0.03em; }
+  .demo-display { font-family: var(--wosh-font-display); font-weight: 700; font-size: 42px; line-height: 1.05; letter-spacing: -0.01em; }
+  .demo-h1      { font-family: var(--wosh-font-display); font-weight: 700; font-size: 28px; line-height: 1.1; }
+  .demo-h2      { font-family: var(--wosh-font-display); font-weight: 500; font-size: 22px; line-height: 1.15; }
+  .demo-body    { font-family: var(--wosh-font-ui); font-weight: 400; font-size: 15px; line-height: 1.45; }
+  .demo-sm      { font-family: var(--wosh-font-ui); font-weight: 400; font-size: 13px; line-height: 1.4; }
+  .demo-label   { font-family: var(--wosh-font-mono); font-weight: 500; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; }
+
+  /* --- Logo grid --- */
+  .logo-cell {
+    border: 1px solid var(--wosh-line);
+    border-radius: 4px;
+    aspect-ratio: 4 / 3;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .logo-cell .caption {
+    position: absolute; left: 14px; bottom: 12px;
+    font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--wosh-ink-soft);
+  }
+  .logo-cell.on-bg     { background: var(--wosh-bg-soft); }
+  .logo-cell.on-paper  { background: var(--wosh-paper); }
+  .logo-cell.on-ink    { background: var(--wosh-ink); color: var(--wosh-on-ink); }
+  .logo-cell.on-ink .caption { color: var(--wosh-on-ink); opacity: 0.7; }
+  .logo-cell.on-accent { background: var(--wosh-accent); color: var(--wosh-on-accent); }
+  .logo-cell.on-accent .caption { color: var(--wosh-on-accent); opacity: 0.85; }
+  .logo-wordmark {
+    font-family: var(--wosh-font-display);
+    font-weight: 700;
+    font-size: 72px;
+    line-height: 0.85;
+    letter-spacing: -0.04em;
+  }
+  .logo-wordmark sub {
+    font-family: var(--wosh-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    vertical-align: 18px;
+    margin-left: 4px;
+    font-weight: 500;
+  }
+  .mark-glyph {
+    width: 100px; height: 100px;
+    display: grid; place-items: center;
+    background: currentColor;
+    border-radius: 2px;
+  }
+  .mark-glyph span {
+    color: var(--wosh-bg);
+    font-family: var(--wosh-font-display);
+    font-weight: 700;
+    font-size: 64px;
+    line-height: 1;
+    letter-spacing: -0.04em;
+  }
+  .logo-cell.on-ink .mark-glyph span,
+  .logo-cell.on-accent .mark-glyph span { color: currentColor; }
+  .logo-cell.on-ink .mark-glyph { background: var(--wosh-on-ink); }
+  .logo-cell.on-ink .mark-glyph span { color: var(--wosh-ink); }
+  .logo-cell.on-accent .mark-glyph { background: var(--wosh-on-accent); }
+  .logo-cell.on-accent .mark-glyph span { color: var(--wosh-accent); }
+
+  /* --- Spacing scale --- */
+  .space-row {
+    display: grid;
+    grid-template-columns: 80px 1fr 100px;
+    gap: 16px;
+    align-items: center;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--wosh-line);
+  }
+  .space-row .tag, .space-row .px { font-family: var(--wosh-font-mono); font-size: 11px; letter-spacing: 0.08em; }
+  .space-row .px { text-align: right; color: var(--wosh-ink-soft); }
+  .space-bar { background: var(--wosh-ink); height: 12px; border-radius: 1px; }
+
+  /* --- Radius / Border --- */
+  .radius-cell { border: 1px solid var(--wosh-line); padding: 16px; background: var(--wosh-paper); display: flex; flex-direction: column; gap: 12px; }
+  .radius-demo { background: var(--wosh-bg-soft); border: 1px solid var(--wosh-line); height: 96px; }
+  .radius-meta { display: flex; justify-content: space-between; font-family: var(--wosh-font-mono); font-size: 11px; letter-spacing: 0.06em; }
+  .radius-meta b { font-weight: 500; }
+
+  /* --- Components --- */
+  .comp { border: 1px solid var(--wosh-line); border-radius: 4px; background: var(--wosh-paper); padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+  .comp h3 { margin: 0; font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  .comp .grp { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .pill-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* --- Phone preview --- */
+  .phone-stack { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .phone {
+    background: var(--wosh-ink);
+    border-radius: 36px;
+    padding: 12px;
+    aspect-ratio: 9 / 19.5;
+  }
+  .phone-screen {
+    background: var(--wosh-bg);
+    border-radius: 26px;
+    height: 100%;
+    padding: 24px 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+  .ps-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .ps-time { font-family: var(--wosh-font-mono); font-weight: 500; font-size: 12px; letter-spacing: 0.04em; }
+  .ps-dots { display: flex; gap: 4px; }
+  .ps-dots span { width: 4px; height: 4px; border-radius: 50%; background: var(--wosh-ink); }
+  .ps-eyebrow { font-family: var(--wosh-font-mono); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  .ps-h { font-family: var(--wosh-font-display); font-weight: 700; font-size: 32px; line-height: 1; letter-spacing: -0.02em; margin: 6px 0 14px; }
+  .ps-row { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 0; border-bottom: 1px dashed var(--wosh-line); }
+  .ps-row.flush { border-bottom: none; padding-top: 0; }
+  .ps-row .name { font-weight: 500; font-size: 14px; }
+  .ps-row .sub { font-size: 11px; color: var(--wosh-ink-soft); }
+  .ps-row .price { font-family: var(--wosh-font-display); font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+  .ps-hero {
+    margin: 22px 0 12px;
+    font-family: var(--wosh-font-display);
+    font-weight: 700;
+    font-size: 88px;
+    line-height: 0.85;
+    letter-spacing: -0.04em;
+    text-align: right;
+  }
+  .ps-hero small {
+    font-family: var(--wosh-font-mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--wosh-ink-soft);
+    vertical-align: 38px;
+    margin-right: 6px;
+  }
+  .ps-cta {
+    margin-top: auto;
+    background: var(--wosh-ink);
+    color: var(--wosh-on-ink);
+    border-radius: 9999px;
+    padding: 14px;
+    text-align: center;
+    font-weight: 500;
+    font-size: 14px;
+  }
+  .ps-cta.accent { background: var(--wosh-accent); color: var(--wosh-on-accent); }
+
+  .ps-track-map {
+    background: linear-gradient(135deg, var(--wosh-bg-soft) 0%, var(--wosh-bg-deep) 100%);
+    border-radius: 6px;
+    height: 220px;
+    margin: 14px 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .ps-track-map::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      linear-gradient(var(--wosh-line) 1px, transparent 1px) 0 0 / 24px 24px,
+      linear-gradient(90deg, var(--wosh-line) 1px, transparent 1px) 0 0 / 24px 24px;
+    opacity: 0.4;
+  }
+  .ps-track-map .pin {
+    position: absolute;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 3px solid var(--wosh-bg);
+    background: var(--wosh-accent);
+    top: 60%; left: 30%;
+    box-shadow: 0 0 0 6px rgba(25,118,255,0.18);
+  }
+  .ps-track-map .pin.dest { background: var(--wosh-ink); top: 25%; left: 70%; box-shadow: none; }
+  .ps-track-map svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* --- Voice cards --- */
+  .voice {
+    border: 1px solid var(--wosh-line);
+    border-radius: 4px;
+    padding: 22px;
+    background: var(--wosh-paper);
+  }
+  .voice h4 { margin: 0 0 14px; font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  .voice ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+  .voice li { font-size: 14px; line-height: 1.4; padding-left: 22px; position: relative; }
+  .voice li::before { content: ""; position: absolute; left: 0; top: 7px; width: 12px; height: 1.5px; background: var(--wosh-ink); }
+  .voice.bad li::before { background: var(--wosh-hot); }
+  .voice.bad li { color: var(--wosh-ink-soft); text-decoration: line-through; text-decoration-color: var(--wosh-hot); text-decoration-thickness: 1px; }
+
+  /* --- Code block --- */
+  pre.code {
+    background: var(--wosh-ink);
+    color: var(--wosh-on-ink);
+    border-radius: 4px;
+    padding: 18px 20px;
+    font-family: var(--wosh-font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow: auto;
+    margin: 0;
+  }
+  pre.code .c { color: #7d8d99; }
+  pre.code .k { color: #cfe0ff; }
+  pre.code .v { color: #ffffff; }
+
+  /* --- File row --- */
+  .file-row {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 24px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--wosh-line);
+    align-items: baseline;
+  }
+  .file-row code { font-family: var(--wosh-font-mono); font-size: 13px; color: var(--wosh-ink); background: var(--wosh-bg-soft); padding: 2px 6px; border-radius: 2px; }
+  .file-row .desc { font-size: 14px; color: var(--wosh-ink-soft); }
+
+  /* --- Footer --- */
+  footer { margin-top: 96px; padding-top: 32px; border-top: 1px solid var(--wosh-ink); }
+  footer .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
+  footer .col h5 { margin: 0 0 8px; font-family: var(--wosh-font-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--wosh-ink-soft); }
+  footer .col p { margin: 0; font-size: 13px; color: var(--wosh-ink); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- MASTHEAD -->
+  <header class="mast">
+    <div class="left">
+      <div class="eyebrow">
+        <span class="wosh-label">№ 01</span>
+        <span class="wosh-label">BRAND KIT</span>
+        <span class="wosh-label">EDITION I</span>
+      </div>
+      <h1 class="wordmark">WOSH<sup style="font-family: var(--wosh-font-mono); font-size: 16px; letter-spacing: 0.14em; vertical-align: 96px; font-weight: 500;">®</sup></h1>
+    </div>
+    <div class="right">
+      <div><b>v1.0</b> · MAY 2026</div>
+      <div>MARINE · BRUTALIST</div>
+      <div>HERO PRICE-LED</div>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <div class="lede">
+    <div class="meta">EST. 2026<br>DUBAI · UAE</div>
+    <h2>A premium hand wash, summoned to wherever your car is parked. Plain-spoken design, in a single signature blue, with the price doing the talking.</h2>
+    <div class="meta">FOR CLAUDE CODE<br>DROP-IN TOKENS</div>
+  </div>
+
+  <hr class="hair">
+
+  <!-- 01 — LOGO -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">01</span>
+      <h3 class="sec-title">Wordmark &amp; lockups</h3>
+      <span class="sec-hint">Min. clearspace = cap height of "W"</span>
+    </div>
+    <div class="sec-body">
+      <div class="row cols-4">
+        <div class="logo-cell on-bg">
+          <div class="logo-wordmark">WOSH</div>
+          <span class="caption">PRIMARY · INK ON BG</span>
+        </div>
+        <div class="logo-cell on-paper">
+          <div class="logo-wordmark">WOSH<sub>®</sub></div>
+          <span class="caption">REGISTERED LOCKUP</span>
+        </div>
+        <div class="logo-cell on-ink">
+          <div class="logo-wordmark">WOSH</div>
+          <span class="caption">REVERSED · ON INK</span>
+        </div>
+        <div class="logo-cell on-accent">
+          <div class="logo-wordmark">WOSH</div>
+          <span class="caption">ON ACCENT</span>
+        </div>
+        <div class="logo-cell on-bg">
+          <div class="mark-glyph"><span>W</span></div>
+          <span class="caption">APP MARK · INK</span>
+        </div>
+        <div class="logo-cell on-paper" style="aspect-ratio: 4 / 3;">
+          <div style="display: flex; flex-direction: column; gap: 6px; align-items: center;">
+            <div class="wosh-label" style="font-size: 9px;">EST. 2026</div>
+            <div class="logo-wordmark" style="font-size: 56px;">WOSH</div>
+            <div class="wosh-label" style="font-size: 9px;">DUBAI · UAE</div>
+          </div>
+          <span class="caption">STAMP LOCKUP</span>
+        </div>
+        <div class="logo-cell on-ink">
+          <div class="mark-glyph"><span>W</span></div>
+          <span class="caption">APP MARK · REVERSED</span>
+        </div>
+        <div class="logo-cell on-bg" style="background: var(--wosh-bg-deep);">
+          <div style="display: flex; align-items: baseline; gap: 12px;">
+            <div class="logo-wordmark" style="font-size: 48px;">WOSH</div>
+            <div class="wosh-label">CAR WASH · ON-DEMAND</div>
+          </div>
+          <span class="caption">HORIZONTAL · TAGLINE</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 — COLOR -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">02</span>
+      <h3 class="sec-title">Color — Marine</h3>
+      <span class="sec-hint">One accent · used sparingly</span>
+    </div>
+    <div class="sec-body">
+      <div class="row cols-4">
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-bg);"><span class="tok">--wosh-bg</span><span class="hex">#DFE9E3</span></div>
+          <div class="meta"><div class="name">Bg</div><div class="use">Page background. Pale celadon.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-bg-soft);"><span class="tok">--wosh-bg-soft</span><span class="hex">#D4E0D8</span></div>
+          <div class="meta"><div class="name">Bg / soft</div><div class="use">Cards, chips.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-bg-deep);"><span class="tok">--wosh-bg-deep</span><span class="hex">#C1D2C7</span></div>
+          <div class="meta"><div class="name">Bg / deep</div><div class="use">Pressed / hover.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-paper);"><span class="tok">--wosh-paper</span><span class="hex">#F3F7F4</span></div>
+          <div class="meta"><div class="name">Paper</div><div class="use">Sheets, modals, elevated.</div></div>
+        </div>
+
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-ink); color: var(--wosh-on-ink);"><span class="tok" style="color: #b2c3b8;">--wosh-ink</span><span class="hex">#0E2236</span></div>
+          <div class="meta"><div class="name">Ink</div><div class="use">Text. Primary fill.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-ink-soft); color: var(--wosh-on-ink);"><span class="tok" style="color: #c8d4cc;">--wosh-ink-soft</span><span class="hex">#4A5E6F</span></div>
+          <div class="meta"><div class="name">Ink / soft</div><div class="use">Secondary text.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-ink-dim); color: var(--wosh-on-ink);"><span class="tok" style="color: #dfe9e3;">--wosh-ink-dim</span><span class="hex">#7D8D99</span></div>
+          <div class="meta"><div class="name">Ink / dim</div><div class="use">Tertiary, placeholders.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-line);"><span class="tok">--wosh-line</span><span class="hex">#B2C3B8</span></div>
+          <div class="meta"><div class="name">Line</div><div class="use">1px borders, dividers.</div></div>
+        </div>
+
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-accent); color: var(--wosh-on-accent);"><span class="tok" style="color: #cfe0ff;">--wosh-accent</span><span class="hex">#1976FF</span></div>
+          <div class="meta"><div class="name">Accent</div><div class="use">CTA. Live state. <b>One</b> place at a time.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-accent-deep); color: var(--wosh-on-accent);"><span class="tok" style="color: #cfe0ff;">--wosh-accent-deep</span><span class="hex">#0C52C2</span></div>
+          <div class="meta"><div class="name">Accent / deep</div><div class="use">Pressed state.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-accent-soft);"><span class="tok">--wosh-accent-soft</span><span class="hex">#CFE0FF</span></div>
+          <div class="meta"><div class="name">Accent / soft</div><div class="use">Tinted backgrounds.</div></div>
+        </div>
+        <div class="swatch">
+          <div class="chip" style="background: var(--wosh-good); color: white;"><span class="tok" style="color: #cfe0ff;">--wosh-good</span><span class="hex">#1A8459</span></div>
+          <div class="meta"><div class="name">Good · Warn · Hot</div><div class="use">Status only. See semantic.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 03 — TYPE -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">03</span>
+      <h3 class="sec-title">Type — Brutalist</h3>
+      <span class="sec-hint">Space Grotesk · IBM Plex Mono</span>
+    </div>
+    <div class="sec-body">
+      <div class="type-spec">
+        <div class="type-row">
+          <span class="tag">Hero</span>
+          <span class="demo demo-hero">AED 45</span>
+          <span class="spec">SPACE GROTESK · <b>700</b><br>120 / 0.9 · -0.03em</span>
+        </div>
+        <div class="type-row">
+          <span class="tag">Display</span>
+          <span class="demo demo-display">Premium hand wash, on demand.</span>
+          <span class="spec">SPACE GROTESK · <b>700</b><br>42 / 1.05 · -0.01em</span>
+        </div>
+        <div class="type-row">
+          <span class="tag">H1</span>
+          <span class="demo demo-h1">Select your wash</span>
+          <span class="spec">SPACE GROTESK · <b>700</b><br>28 / 1.1</span>
+        </div>
+        <div class="type-row">
+          <span class="tag">H2</span>
+          <span class="demo demo-h2">Exterior Essential</span>
+          <span class="spec">SPACE GROTESK · <b>500</b><br>22 / 1.15</span>
+        </div>
+        <div class="type-row">
+          <span class="tag">Body</span>
+          <span class="demo demo-body">A 25-minute hand wash, wheels detailed, and a streak-free dry. Your washer arrives in 12 minutes.</span>
+          <span class="spec">SPACE GROTESK · <b>400</b><br>15 / 1.45</span>
+        </div>
+        <div class="type-row">
+          <span class="tag">Small</span>
+          <span class="demo demo-sm">Caption · helper text · fine print sits here.</span>
+          <span class="spec">SPACE GROTESK · <b>400</b><br>13 / 1.4</span>
+        </div>
+        <div class="type-row">
+          <span class="tag">Label</span>
+          <span class="demo demo-label">№ 0042 · EST. 12 MIN · TWR 2</span>
+          <span class="spec">IBM PLEX MONO · <b>500</b><br>10 · 0.14em · UPPER</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 — SPACING + SHAPE -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">04</span>
+      <h3 class="sec-title">Space &amp; shape</h3>
+      <span class="sec-hint">4pt grid · brutalist radii</span>
+    </div>
+    <div class="sec-body">
+      <div class="row cols-2" style="gap: 48px;">
+        <div>
+          <div class="wosh-label" style="margin-bottom: 12px;">SPACING SCALE</div>
+          <div class="space-row"><span class="tag">sp-1</span><div class="space-bar" style="width: 4px;"></div><span class="px">4 PX</span></div>
+          <div class="space-row"><span class="tag">sp-2</span><div class="space-bar" style="width: 8px;"></div><span class="px">8 PX</span></div>
+          <div class="space-row"><span class="tag">sp-3</span><div class="space-bar" style="width: 12px;"></div><span class="px">12 PX</span></div>
+          <div class="space-row"><span class="tag">sp-4</span><div class="space-bar" style="width: 16px;"></div><span class="px">16 PX</span></div>
+          <div class="space-row"><span class="tag">sp-5</span><div class="space-bar" style="width: 20px;"></div><span class="px">20 PX</span></div>
+          <div class="space-row"><span class="tag">sp-6</span><div class="space-bar" style="width: 24px;"></div><span class="px">24 PX</span></div>
+          <div class="space-row"><span class="tag">sp-7</span><div class="space-bar" style="width: 32px;"></div><span class="px">32 PX</span></div>
+          <div class="space-row"><span class="tag">sp-8</span><div class="space-bar" style="width: 48px;"></div><span class="px">48 PX</span></div>
+          <div class="space-row"><span class="tag">sp-9</span><div class="space-bar" style="width: 64px;"></div><span class="px">64 PX</span></div>
+        </div>
+        <div>
+          <div class="wosh-label" style="margin-bottom: 12px;">RADIUS &amp; BORDER</div>
+          <div class="row cols-2">
+            <div class="radius-cell">
+              <div class="radius-demo" style="border-radius: 2px;"></div>
+              <div class="radius-meta"><span>--wosh-r-sq</span><b>2 PX</b></div>
+            </div>
+            <div class="radius-cell">
+              <div class="radius-demo" style="border-radius: 4px;"></div>
+              <div class="radius-meta"><span>--wosh-r-card</span><b>4 PX</b></div>
+            </div>
+            <div class="radius-cell">
+              <div class="radius-demo" style="border-radius: 12px 12px 0 0;"></div>
+              <div class="radius-meta"><span>--wosh-r-sheet</span><b>12 PX</b></div>
+            </div>
+            <div class="radius-cell">
+              <div class="radius-demo" style="border-radius: 9999px;"></div>
+              <div class="radius-meta"><span>--wosh-r-pill</span><b>PILL</b></div>
+            </div>
+          </div>
+          <div class="wosh-label" style="margin: 24px 0 12px;">BORDER WIDTHS</div>
+          <div class="row cols-3">
+            <div class="radius-cell"><div style="border-top: 1px solid var(--wosh-ink);"></div><div class="radius-meta"><span>hair</span><b>1 PX</b></div></div>
+            <div class="radius-cell"><div style="border-top: 1.5px solid var(--wosh-ink);"></div><div class="radius-meta"><span>rule</span><b>1.5 PX</b></div></div>
+            <div class="radius-cell"><div style="border-top: 2px solid var(--wosh-ink);"></div><div class="radius-meta"><span>bold</span><b>2 PX</b></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 — COMPONENTS -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">05</span>
+      <h3 class="sec-title">Components</h3>
+      <span class="sec-hint">Drop-in helpers in tokens.css</span>
+    </div>
+    <div class="sec-body">
+      <div class="row cols-2">
+        <div class="comp">
+          <h3>BUTTONS</h3>
+          <div class="grp">
+            <button class="wosh-btn wosh-btn-primary">Confirm booking</button>
+            <button class="wosh-btn wosh-btn-accent">Track live</button>
+            <button class="wosh-btn wosh-btn-ghost">Cancel</button>
+            <button class="wosh-btn wosh-btn-primary" disabled>Disabled</button>
+          </div>
+        </div>
+        <div class="comp">
+          <h3>STATUS PILLS</h3>
+          <div class="pill-row">
+            <span class="wosh-pill" style="color: var(--wosh-accent);">LIVE · 4 MIN</span>
+            <span class="wosh-pill" style="color: var(--wosh-good);">COMPLETED</span>
+            <span class="wosh-pill" style="color: var(--wosh-warn);">AWAITING</span>
+            <span class="wosh-pill" style="color: var(--wosh-hot);">CANCELED</span>
+            <span class="wosh-pill" style="color: var(--wosh-ink-soft);">DRAFT</span>
+          </div>
+        </div>
+        <div class="comp">
+          <h3>INPUT</h3>
+          <input class="wosh-input" placeholder="Tower / villa / plate" value="">
+          <input class="wosh-input" placeholder="Email" value="rashid@example.ae">
+        </div>
+        <div class="comp">
+          <h3>CARD</h3>
+          <div class="wosh-card">
+            <div class="wosh-label">02 / SUNDAY · 14:00</div>
+            <div class="demo-h2" style="margin: 6px 0 4px;">Exterior Essential</div>
+            <div class="wosh-sm" style="color: var(--wosh-ink-soft);">Hand wash · wheels · streak-free dry.</div>
+            <hr class="wosh-dotline" style="margin: 14px 0;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline;">
+              <span class="wosh-label">TOTAL</span>
+              <span class="demo-h1">AED 45</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 06 — IN-CONTEXT -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">06</span>
+      <h3 class="sec-title">In-context — hero price-led</h3>
+      <span class="sec-hint">The number IS the design</span>
+    </div>
+    <div class="sec-body">
+      <div class="phone-stack">
+        <!-- Home -->
+        <div class="phone"><div class="phone-screen">
+          <div class="ps-top"><span class="ps-time">09:41</span><span class="ps-dots"><span></span><span></span><span></span></span></div>
+          <div class="ps-eyebrow">01 / SELECT WASH</div>
+          <div class="ps-h">Good morning,<br>Rashid.</div>
+          <div class="ps-row flush"><div><div class="name">Exterior Essential</div><div class="sub">25 MIN · HAND WASH</div></div><div class="price">45</div></div>
+          <div class="ps-row"><div><div class="name">Full Detail</div><div class="sub">90 MIN · INT + EXT</div></div><div class="price">120</div></div>
+          <div class="ps-row"><div><div class="name">Ceramic Refresh</div><div class="sub">+ COATING TOP-UP</div></div><div class="price">220</div></div>
+          <div class="ps-hero"><small>AED</small>45</div>
+          <div class="ps-cta">Book Exterior Essential →</div>
+        </div></div>
+        <!-- Summary -->
+        <div class="phone"><div class="phone-screen">
+          <div class="ps-top"><span class="ps-time">09:42</span><span class="ps-dots"><span></span><span></span><span></span></span></div>
+          <div class="ps-eyebrow">№ 0042 · CONFIRM</div>
+          <div class="ps-h">Review &amp;<br>confirm.</div>
+          <div class="ps-row flush"><div class="sub">SERVICE</div><div class="name" style="font-size: 13px;">Exterior Essential</div></div>
+          <div class="ps-row"><div class="sub">WHEN</div><div class="name" style="font-size: 13px;">Today · 11:30</div></div>
+          <div class="ps-row"><div class="sub">WHERE</div><div class="name" style="font-size: 13px;">Marina Hts · Tw 2</div></div>
+          <div class="ps-row"><div class="sub">VEHICLE</div><div class="name" style="font-size: 13px;">Range Rover · A 14722</div></div>
+          <div class="ps-hero"><small>AED</small>45</div>
+          <div class="ps-cta">Confirm booking</div>
+        </div></div>
+        <!-- Tracking -->
+        <div class="phone"><div class="phone-screen">
+          <div class="ps-top"><span class="ps-time">11:23</span><span class="ps-dots"><span></span><span></span><span></span></span></div>
+          <div class="ps-eyebrow">LIVE · № 0042</div>
+          <div class="ps-h">Your washer<br>is en route.</div>
+          <div class="ps-track-map">
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M 30 60 Q 50 30 70 25" stroke="#1976ff" stroke-width="1.2" fill="none" stroke-dasharray="2 2"/></svg>
+            <div class="pin"></div><div class="pin dest"></div>
+          </div>
+          <div class="ps-row flush"><div class="sub">ETA</div><div class="name" style="font-size: 13px; color: var(--wosh-accent);">4 MIN</div></div>
+          <div class="ps-row"><div class="sub">WASHER</div><div class="name" style="font-size: 13px;">Karim H.</div></div>
+          <div class="ps-cta accent">Call washer</div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 — VOICE -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">07</span>
+      <h3 class="sec-title">Voice &amp; tone</h3>
+      <span class="sec-hint">Lead with the number</span>
+    </div>
+    <div class="sec-body">
+      <div class="row cols-2">
+        <div class="voice">
+          <h4>DO — PLAIN, CONFIDENT</h4>
+          <ul>
+            <li>"Your washer is on the way."</li>
+            <li>"12 min · Marina Heights, Tw 2."</li>
+            <li>"Done. Looking sharp."</li>
+            <li>"Saved AED 35 vs single bookings."</li>
+            <li>"Reschedule up to 1 hour before."</li>
+          </ul>
+        </div>
+        <div class="voice bad">
+          <h4>DON'T — SALESY, EMOJI, EXCLAIM</h4>
+          <ul>
+            <li>"🚗 Hey! Booking your awesome wash!!"</li>
+            <li>"Get sparkling clean ASAP! ✨"</li>
+            <li>"Woohoo, all done! 🎉🎉"</li>
+            <li>"Our amazing team is on the way!"</li>
+            <li>"Game-changing convenience awaits."</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 — FOR CLAUDE CODE -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-no">08</span>
+      <h3 class="sec-title">For Claude Code</h3>
+      <span class="sec-hint">Drop-in package</span>
+    </div>
+    <div class="sec-body">
+
+      <div class="wosh-label" style="margin-bottom: 12px;">FILES IN THIS PACKAGE</div>
+      <div class="file-row"><code>brand-kit/tokens.css</code><span class="desc">CSS custom properties + helper classes. Authoritative source of truth. <code>@import</code> from your root stylesheet.</span></div>
+      <div class="file-row"><code>brand-kit/tokens.json</code><span class="desc">Same tokens as data, with usage notes. For React Native, codegen, or design tools.</span></div>
+      <div class="file-row"><code>brand-kit/README.md</code><span class="desc">Conventions, voice, layout rules, "do / don't" — read this first.</span></div>
+      <div class="file-row"><code>WOSH Brand Kit.html</code><span class="desc">This document. Visual reference.</span></div>
+
+      <div class="wosh-label" style="margin: 36px 0 12px;">QUICK START — WEB</div>
+      <pre class="code"><span class="c">/* in your root layout or _app */</span>
+<span class="k">&lt;link</span> <span class="v">rel="preconnect" href="https://fonts.googleapis.com"</span><span class="k">&gt;</span>
+<span class="k">&lt;link</span> <span class="v">rel="stylesheet"</span>
+      <span class="v">href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap"</span><span class="k">&gt;</span>
+<span class="k">&lt;link</span> <span class="v">rel="stylesheet" href="/brand-kit/tokens.css"</span><span class="k">&gt;</span>
+
+<span class="c">/* base.css */</span>
+<span class="k">body</span> {
+  <span class="k">background</span>: <span class="v">var(--wosh-bg)</span>;
+  <span class="k">color</span>: <span class="v">var(--wosh-ink)</span>;
+  <span class="k">font-family</span>: <span class="v">var(--wosh-font-ui)</span>;
+  <span class="k">font-size</span>: <span class="v">var(--wosh-fs-body)</span>;
+}</pre>
+
+      <div class="wosh-label" style="margin: 36px 0 12px;">QUICK START — REACT NATIVE</div>
+      <pre class="code"><span class="c">// theme.ts — generated from tokens.json</span>
+<span class="k">import</span> tokens <span class="k">from</span> <span class="v">"./brand-kit/tokens.json"</span>;
+
+<span class="k">export const</span> theme = {
+  bg:     tokens.color.surface.bg.value,        <span class="c">// #DFE9E3</span>
+  ink:    tokens.color.ink.ink.value,           <span class="c">// #0E2236</span>
+  accent: tokens.color.accent.accent.value,     <span class="c">// #1976FF</span>
+  font:   { display: <span class="v">"SpaceGrotesk-Bold"</span>, mono: <span class="v">"IBMPlexMono-Medium"</span> },
+};</pre>
+
+      <div class="wosh-label" style="margin: 36px 0 12px;">RULES THAT MATTER MOST</div>
+      <div class="row cols-2">
+        <div class="comp" style="background: var(--wosh-bg-soft);">
+          <h3>USE</h3>
+          <ul style="margin: 0; padding-left: 20px; line-height: 1.7;">
+            <li>One signature accent — <code>--wosh-accent</code></li>
+            <li>Space Grotesk for everything, Plex Mono for labels</li>
+            <li>2-digit mono section indices (<code>01 / SELECT WASH</code>)</li>
+            <li>Hero numerals at 120 / 0.9, right-aligned</li>
+            <li>Dotted dividers between groups (receipt feel)</li>
+            <li>4px grid · 2px brutalist radii · pill CTAs</li>
+          </ul>
+        </div>
+        <div class="comp" style="background: var(--wosh-bg-soft);">
+          <h3>AVOID</h3>
+          <ul style="margin: 0; padding-left: 20px; line-height: 1.7;">
+            <li>A second accent color</li>
+            <li>Inter, Roboto, system-stack body fonts</li>
+            <li>Decorative SVG illustrations</li>
+            <li>Emoji in product UI</li>
+            <li>Drop shadows on cards</li>
+            <li>Replacing hero numerals with icons</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="grid">
+      <div class="col"><h5>BRAND</h5><p>WOSH®</p></div>
+      <div class="col"><h5>EDITION</h5><p>v1.0 · MAY 2026</p></div>
+      <div class="col"><h5>DIRECTION</h5><p>Marine · Brutalist · Hero price-led</p></div>
+      <div class="col"><h5>OWNED BY</h5><p>You.</p></div>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

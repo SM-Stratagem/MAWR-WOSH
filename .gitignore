@@ -1,2 +1,26 @@
 
+# env
+.env
 .env.local
+.env.*.local
+
+# logs / build
+*.log
+dist/
+.next/
+.expo/
+
+# editor / OS
+.DS_Store
+
+# binaries we don't track in the repo
+*.zip
+IMG_*.png
+"Screenshot *.png"
+
+# node
+node_modules/
+
+# project-local skill state
+.agents/skills/
+skills-lock.json
