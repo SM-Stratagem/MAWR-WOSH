@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { MutationCtx, mutation, query } from "./_generated/server";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES, getCurrentUser } from "./authHelpers";
 
 async function upsertUserRecord(
   ctx: MutationCtx,
@@ -110,17 +111,7 @@ export const list = query({
 export const adminListUsers = query({
   args: { searchQuery: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!user || (user.role !== "admin" && user.role !== "superadmin" && user.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    await requireRole(ctx, STAFF_ROLES);
 
     let users = await ctx.db.query("users").take(1000);
 
@@ -178,24 +169,41 @@ export const updateUser = mutation({
     defaultAddressId: v.optional(v.id("addresses")),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
+    const actor = await getCurrentUser(ctx);
+    const target = await ctx.db.get(args.userId);
+    if (!target) throw new Error("User not found");
 
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
+    const isSelf = actor._id === args.userId;
+    const wantsRoleChange = args.role !== undefined && args.role !== target.role;
 
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
+    if (wantsRoleChange) {
+      // Only superadmin can change roles
+      if (actor.role !== "superadmin") {
+        throw new Error("Forbidden: only superadmin can change roles");
+      }
+    }
+    if (!isSelf && !ADMIN_ROLES.includes(actor.role as any)) {
       throw new Error("Forbidden");
     }
 
     const { userId, ...updates } = args;
     await ctx.db.patch(userId, updates);
 
+    if (wantsRoleChange) {
+      await ctx.db.insert("activityLogs", {
+        actorUserId: actor._id,
+        actorRole: actor.role,
+        entityType: "user",
+        entityId: args.userId.toString(),
+        action: "role_changed",
+        payload: JSON.stringify({ from: target.role, to: args.role }),
+        createdAt: Date.now(),
+      });
+    }
+
     await ctx.db.insert("activityLogs", {
-      actorUserId: adminUser._id,
-      actorRole: adminUser.role,
+      actorUserId: actor._id,
+      actorRole: actor.role,
       entityType: "user",
       entityId: userId.toString(),
       action: "updated",

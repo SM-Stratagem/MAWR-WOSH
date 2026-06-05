@@ -1,13 +1,11 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES } from "./authHelpers";
 
 export const adminListRefunds = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    await requireRole(ctx, STAFF_ROLES);
 
     const refunds = await ctx.db.query("refunds").order("desc").take(100);
     return await Promise.all(
@@ -34,10 +32,7 @@ export const adminCreateRefund = mutation({
     requestedBy: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    await requireRole(ctx, ADMIN_ROLES);
 
     return await ctx.db.insert("refunds", {
       bookingId: args.bookingId,
@@ -60,10 +55,7 @@ export const adminReviewRefund = mutation({
     rejectionReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
 
     await ctx.db.patch(args.refundId, {
       status: args.status,

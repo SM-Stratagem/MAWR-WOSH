@@ -1,22 +1,12 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { normalizePhone } from "./phone";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES } from "./authHelpers";
 
 export const listTeams = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!user || (user.role !== "admin" && user.role !== "superadmin" && user.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
-
+    await requireRole(ctx, STAFF_ROLES);
     return await ctx.db.query("teams").take(100);
   },
 });
@@ -24,18 +14,7 @@ export const listTeams = query({
 export const adminListTeams = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
-
+    await requireRole(ctx, STAFF_ROLES);
     const allTeams = await ctx.db.query("teams").take(100);
     return allTeams.filter((t) => t.isActive !== false);
   },
@@ -53,17 +32,7 @@ export const adminUpsertTeam = mutation({
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
 
     const normalizedPhone = normalizePhone(args.phone);
 
@@ -120,17 +89,7 @@ export const adminUpsertTeam = mutation({
 export const adminDeleteTeam = mutation({
   args: { teamId: v.id("teams") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
 
     await ctx.db.patch(args.teamId, { isActive: false });
 
@@ -195,20 +154,7 @@ export const teamUpdateLocation = mutation({
 export const adminLiveTeams = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-    if (
-      !adminUser ||
-      (adminUser.role !== "admin" &&
-        adminUser.role !== "superadmin" &&
-        adminUser.role !== "operator")
-    ) {
-      throw new Error("Forbidden");
-    }
+    await requireRole(ctx, STAFF_ROLES);
 
     const teams = await ctx.db.query("teams").take(200);
     return teams

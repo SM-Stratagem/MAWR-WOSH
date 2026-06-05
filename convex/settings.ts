@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireRole, STAFF_ROLES, SUPERADMIN_ONLY } from "./authHelpers";
 
 export const getSetting = query({
   args: { key: v.string() },
@@ -13,9 +14,27 @@ export const getSetting = query({
   },
 });
 
+export const getPublic = query({
+  args: { key: v.string() },
+  handler: async (ctx, args) => {
+    const ALLOWED = new Set([
+      "subscription_discount_pct",
+      "default_service_fee_pct",
+      "currency",
+    ]);
+    if (!ALLOWED.has(args.key)) return null;
+    const row = await ctx.db
+      .query("systemSettings")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    return row?.value ?? null;
+  },
+});
+
 export const listSettings = query({
   args: {},
   handler: async (ctx) => {
+    await requireRole(ctx, STAFF_ROLES);
     return await ctx.db.query("systemSettings").take(100);
   },
 });
@@ -26,17 +45,7 @@ export const adminUpdateSystemSetting = mutation({
     value: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || adminUser.role !== "superadmin") {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, SUPERADMIN_ONLY);
 
     const existing = await ctx.db
       .query("systemSettings")

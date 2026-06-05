@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES, getUserByClerkId } from "./authHelpers";
 
 const TEAM_STATUS_TRANSITIONS: Record<string, string[]> = {
   team_assigned: ["on_the_way"],
@@ -695,17 +696,7 @@ export const adminListBookings = query({
     searchQuery: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    await requireRole(ctx, STAFF_ROLES);
 
     let bookings = args.status
       ? await ctx.db
@@ -775,17 +766,7 @@ export const adminListBookings = query({
 export const adminGetBookingDetail = query({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    await requireRole(ctx, STAFF_ROLES);
 
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
@@ -833,17 +814,7 @@ export const adminUpdateBookingStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
 
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
@@ -870,17 +841,7 @@ export const adminAssignTeam = mutation({
     teamId: v.id("teams"),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
 
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
@@ -999,20 +960,7 @@ export const recomputeActiveBookingEtas = internalMutation({
 export const adminAutoReassign = mutation({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-    if (
-      !adminUser ||
-      (adminUser.role !== "admin" &&
-        adminUser.role !== "superadmin" &&
-        adminUser.role !== "operator")
-    ) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
 
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
@@ -1113,20 +1061,7 @@ export const adminAutoReassign = mutation({
 export const adminBulkAutoAssign = mutation({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-    if (
-      !adminUser ||
-      (adminUser.role !== "admin" &&
-        adminUser.role !== "superadmin" &&
-        adminUser.role !== "operator")
-    ) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
 
     const unassigned = await ctx.db
       .query("bookings")
@@ -1202,17 +1137,7 @@ export const adminConfirmBooking = mutation({
     bookingId: v.id("bookings"),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
 
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
@@ -1245,17 +1170,7 @@ export const adminRejectBooking = mutation({
     reason: v.string(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
 
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
@@ -1302,12 +1217,9 @@ export const adminDashboardMetrics = query({
       };
     }
 
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
+    const adminUser = await getUserByClerkId(ctx, identity.subject);
 
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
+    if (!adminUser || !ADMIN_ROLES.includes(adminUser.role as any)) {
       return {
         totalBookingsToday: 0,
         activeBookings: 0,
@@ -1614,46 +1526,8 @@ export const teamUpdateStatus = mutation({
       v.literal("completed")
     ),
   },
-  handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!user || user.role !== "operator") throw new Error("Forbidden");
-
-    const booking = await ctx.db.get(args.bookingId);
-    if (!booking || !booking.assignedTeamId) throw new Error("Booking not found");
-
-    if (booking.status === args.status) {
-      return { success: true };
-    }
-    await assertTeamStatusUpdateAllowed(ctx, booking, args.bookingId, args.status);
-
-    await ctx.db.patch(args.bookingId, {
-      status: args.status,
-      updatedAt: Date.now(),
-    });
-
-    await ctx.db.insert("activityLogs", {
-      actorUserId: user._id,
-      actorRole: user.role,
-      entityType: "booking",
-      entityId: args.bookingId.toString(),
-      action: `team_status_changed_to_${args.status}`,
-      createdAt: Date.now(),
-    });
-
-    if (args.status === "completed") {
-      if (booking.assignedTeamId) {
-        await ctx.db.patch(booking.assignedTeamId, { status: "available" });
-      }
-    }
-
-    return { success: true };
+  handler: async () => {
+    throw new Error("teamUpdateStatus is deprecated — use teamUpdateStatusWithSession");
   },
 });
 
@@ -1771,12 +1645,9 @@ export const adminAdvancedAnalytics = query({
       return null;
     }
 
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
+    const adminUser = await getUserByClerkId(ctx, identity.subject);
 
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
+    if (!adminUser || !ADMIN_ROLES.includes(adminUser.role as any)) {
       return null;
     }
 

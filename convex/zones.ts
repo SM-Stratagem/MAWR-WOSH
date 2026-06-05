@@ -1,13 +1,11 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES } from "./authHelpers";
 
 export const adminListZones = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    await requireRole(ctx, STAFF_ROLES);
     const allZones = await ctx.db.query("zones").take(100);
     return allZones.filter((z) => z.isActive !== false);
   },
@@ -21,10 +19,7 @@ export const adminCreateZone = mutation({
     driversAvailable: v.number(),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    await requireRole(ctx, ADMIN_ROLES);
     return await ctx.db.insert("zones", {
       name: args.name,
       status: "active",
@@ -48,10 +43,7 @@ export const adminUpdateZone = mutation({
     driversAvailable: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    await requireRole(ctx, ADMIN_ROLES);
     const updates: Record<string, any> = { updatedAt: Date.now() };
     if (args.name !== undefined) updates.name = args.name;
     if (args.status !== undefined) updates.status = args.status;
@@ -65,10 +57,7 @@ export const adminUpdateZone = mutation({
 export const adminDeleteZone = mutation({
   args: { zoneId: v.id("zones") },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-    const adminUser = await ctx.db.query("users").withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject)).first();
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) throw new Error("Forbidden");
+    await requireRole(ctx, ADMIN_ROLES);
     await ctx.db.patch(args.zoneId, { isActive: false });
   },
 });

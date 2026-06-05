@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES } from "./authHelpers";
 
 export const listMySubscriptions = query({
   args: {},
@@ -231,17 +232,7 @@ export const resumeMySubscription = mutation({
 export const adminListSubscriptions = query({
   args: { status: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin" && adminUser.role !== "operator")) {
-      throw new Error("Forbidden");
-    }
+    await requireRole(ctx, STAFF_ROLES);
 
     let subscriptions = await ctx.db.query("subscriptions").take(1000);
 
@@ -275,17 +266,7 @@ export const adminUpdateSubscription = mutation({
     status: v.optional(v.union(v.literal("active"), v.literal("paused"), v.literal("canceled"))),
   },
   handler: async (ctx, args) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) throw new Error("Unauthorized");
-
-    const adminUser = await ctx.db
-      .query("users")
-      .withIndex("by_clerk_id", (q) => q.eq("clerkId", identity.subject))
-      .first();
-
-    if (!adminUser || (adminUser.role !== "admin" && adminUser.role !== "superadmin")) {
-      throw new Error("Forbidden");
-    }
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
 
     const subscription = await ctx.db.get(args.subscriptionId);
     if (!subscription) throw new Error("Subscription not found");
