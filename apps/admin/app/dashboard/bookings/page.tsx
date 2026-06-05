@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { Id } from "../../../convex/_generated/dataModel";
+import Modal from "../../../components/ui/Modal";
 
 const statusColors: Record<string, string> = {
   draft: "#a8aaa6", awaiting_payment: "#ffb020", confirmed: "#2f80ff",
@@ -23,8 +26,10 @@ function formatPlate(car: any) {
 }
 
 export default function BookingsPage() {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [createOpen, setCreateOpen] = useState(false);
   const bookings = useQuery(api.bookings.adminListBookings, {
     searchQuery: search || undefined,
     status: statusFilter !== "all" ? statusFilter as any : undefined,
@@ -38,7 +43,7 @@ export default function BookingsPage() {
           <h1 className="text-[32px] font-[900] tracking-tight m-0">Bookings</h1>
           <p className="text-[var(--muted)] text-[15px] mt-3">Manage booking lifecycle from paid booking to completion.</p>
         </div>
-        <button className="btn-primary">Create Manual Booking</button>
+        <button className="btn-primary" onClick={() => setCreateOpen(true)}>+ Manual Booking</button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
@@ -73,7 +78,11 @@ export default function BookingsPage() {
               {(bookings || []).map((b: any) => {
                 const pb = paymentBadge[b.paymentStatus] || paymentBadge.pending;
                 return (
-                  <tr key={b._id}>
+                  <tr
+                    key={b._id}
+                    className="cursor-pointer"
+                    onClick={() => router.push(`/dashboard/bookings/${b._id}`)}
+                  >
                     <td className="font-mono text-[13px]">{b.bookingNumber}</td>
                     <td>
                       <div className="font-medium">{b.user?.name || "N/A"}</div>
@@ -106,6 +115,115 @@ export default function BookingsPage() {
           </table>
         </div>
       </div>
+
+      <ManualBookingModal open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
+  );
+}
+
+function ManualBookingModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const router = useRouter();
+  const createManual = useMutation(api.bookings.adminCreateManualBooking);
+  const [userId, setUserId] = useState("");
+  const [addressId, setAddressId] = useState("");
+  const [washTypeId, setWashTypeId] = useState("");
+  const [carIdsCsv, setCarIdsCsv] = useState("");
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reset = () => {
+    setUserId(""); setAddressId(""); setWashTypeId(""); setCarIdsCsv("");
+    setScheduledFor(""); setNotes(""); setError(null);
+  };
+
+  const submit = async () => {
+    setError(null);
+    const carIds = carIdsCsv.split(",").map((s) => s.trim()).filter(Boolean);
+    if (!userId || !addressId || !washTypeId || carIds.length === 0) {
+      setError("userId, addressId, washTypeId and at least one carId are required.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await createManual({
+        userId: userId as Id<"users">,
+        addressId: addressId as Id<"addresses">,
+        washTypeId: washTypeId as Id<"washTypes">,
+        carIds: carIds as Id<"cars">[],
+        scheduledFor: scheduledFor ? new Date(scheduledFor).getTime() : undefined,
+        notes: notes || undefined,
+      });
+      reset();
+      onClose();
+      router.push(`/dashboard/bookings/${res.bookingId}`);
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => { reset(); onClose(); }}
+      title="Create manual booking"
+      footer={
+        <>
+          <button onClick={() => { reset(); onClose(); }} className="px-3 py-1.5 border rounded bg-white">Cancel</button>
+          <button disabled={busy} onClick={submit} className="px-3 py-1.5 bg-blue-600 text-white rounded disabled:opacity-50">
+            {busy ? "Creating…" : "Create"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-[#0e2236]">
+        <p className="text-xs text-gray-500">
+          Internal tool. Paste IDs directly. Booking is created as paid offline (status: confirmed).
+        </p>
+        <Field label="User ID" value={userId} onChange={setUserId} placeholder="users id" />
+        <Field label="Address ID" value={addressId} onChange={setAddressId} placeholder="addresses id" />
+        <Field label="Wash Type ID" value={washTypeId} onChange={setWashTypeId} placeholder="washTypes id" />
+        <Field label="Car IDs (comma-separated)" value={carIdsCsv} onChange={setCarIdsCsv} placeholder="carId1,carId2" />
+        <label className="block">
+          <span className="text-sm text-gray-600">Scheduled for (optional)</span>
+          <input
+            type="datetime-local"
+            value={scheduledFor}
+            onChange={(e) => setScheduledFor(e.target.value)}
+            className="block w-full mt-1 border rounded px-2 py-1.5"
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm text-gray-600">Notes (optional)</span>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="block w-full mt-1 border rounded px-2 py-1.5"
+            rows={2}
+          />
+        </label>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
+function Field({ label, value, onChange, placeholder }: {
+  label: string; value: string; onChange: (v: string) => void; placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="text-sm text-gray-600">{label}</span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="block w-full mt-1 border rounded px-2 py-1.5 font-mono text-xs"
+      />
+    </label>
   );
 }
