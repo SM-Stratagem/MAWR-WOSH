@@ -71,11 +71,16 @@ export const adminUpsertTeam = mutation({
         pinHash: hash,
         pinSalt: salt,
         status: args.status,
-        currentLat: args.currentLat,
-        currentLng: args.currentLng,
-        lastLocationAt: Date.now(),
         isActive: args.isActive,
       });
+
+      // Seed the location row if the admin provided initial coordinates.
+      if (
+        typeof args.currentLat === "number" &&
+        typeof args.currentLng === "number"
+      ) {
+        await upsertTeamLocation(ctx, id, args.currentLat, args.currentLng);
+      }
 
       await ctx.db.insert("activityLogs", {
         actorUserId: adminUser._id,
@@ -109,6 +114,32 @@ export const adminDeleteTeam = mutation({
   },
 });
 
+async function upsertTeamLocation(
+  ctx: any,
+  teamId: any,
+  lat: number,
+  lng: number,
+) {
+  const existing = await ctx.db
+    .query("teamLocations")
+    .withIndex("by_team_id", (q: any) => q.eq("teamId", teamId))
+    .first();
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      currentLat: lat,
+      currentLng: lng,
+      lastLocationAt: Date.now(),
+    });
+  } else {
+    await ctx.db.insert("teamLocations", {
+      teamId,
+      currentLat: lat,
+      currentLng: lng,
+      lastLocationAt: Date.now(),
+    });
+  }
+}
+
 export const recordTeamLocationUpdate = mutation({
   args: {
     teamId: v.id("teams"),
@@ -119,11 +150,7 @@ export const recordTeamLocationUpdate = mutation({
     const team = await ctx.db.get(args.teamId);
     if (!team) throw new Error("Team not found");
 
-    await ctx.db.patch(args.teamId, {
-      currentLat: args.latitude,
-      currentLng: args.longitude,
-      lastLocationAt: Date.now(),
-    });
+    await upsertTeamLocation(ctx, args.teamId, args.latitude, args.longitude);
   },
 });
 
@@ -146,11 +173,7 @@ export const teamUpdateLocation = mutation({
     const team = await ctx.db.get(session.teamId);
     if (!team || !team.isActive) throw new Error("Team not found");
 
-    await ctx.db.patch(session.teamId, {
-      currentLat: args.latitude,
-      currentLng: args.longitude,
-      lastLocationAt: Date.now(),
-    });
+    await upsertTeamLocation(ctx, session.teamId, args.latitude, args.longitude);
 
     return { success: true };
   },
@@ -162,16 +185,23 @@ export const adminLiveTeams = query({
     await requireRole(ctx, STAFF_ROLES);
 
     const teams = await ctx.db.query("teams").take(200);
-    return teams
-      .filter((t) => t.isActive)
-      .map((t) => ({
-        _id: t._id,
-        name: t.name,
-        status: t.status,
-        currentLat: t.currentLat ?? null,
-        currentLng: t.currentLng ?? null,
-        lastLocationAt: t.lastLocationAt ?? null,
-      }));
+    const active = teams.filter((t) => t.isActive);
+    return await Promise.all(
+      active.map(async (t) => {
+        const loc = await ctx.db
+          .query("teamLocations")
+          .withIndex("by_team_id", (q) => q.eq("teamId", t._id))
+          .first();
+        return {
+          _id: t._id,
+          name: t.name,
+          status: t.status,
+          currentLat: loc?.currentLat ?? t.currentLat ?? null,
+          currentLng: loc?.currentLng ?? t.currentLng ?? null,
+          lastLocationAt: loc?.lastLocationAt ?? t.lastLocationAt ?? null,
+        };
+      }),
+    );
   },
 });
 

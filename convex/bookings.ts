@@ -137,21 +137,25 @@ export const getLiveTracking = query({
     if (booking.assignedTeamId) {
       const t = await ctx.db.get(booking.assignedTeamId);
       if (t) {
+        const loc = await ctx.db
+          .query("teamLocations")
+          .withIndex("by_team_id", (q) => q.eq("teamId", t._id))
+          .first();
+        const lat = loc?.currentLat ?? t.currentLat ?? null;
+        const lng = loc?.currentLng ?? t.currentLng ?? null;
+        const lastAt = loc?.lastLocationAt ?? t.lastLocationAt ?? null;
         team = {
           _id: t._id,
           name: t.name,
           status: t.status,
-          currentLat: t.currentLat ?? null,
-          currentLng: t.currentLng ?? null,
-          lastLocationAt: t.lastLocationAt ?? null,
+          currentLat: lat,
+          currentLng: lng,
+          lastLocationAt: lastAt,
         };
-        if (
-          typeof t.currentLat === "number" &&
-          typeof t.currentLng === "number"
-        ) {
+        if (typeof lat === "number" && typeof lng === "number") {
           distanceKm = haversineKm(
-            t.currentLat,
-            t.currentLng,
+            lat,
+            lng,
             address.latitude,
             address.longitude,
           );
@@ -191,26 +195,26 @@ export const getEtaPreview = query({
     const address = await ctx.db.get(args.addressId);
     if (!address) return fallback;
 
-    const teams = await ctx.db.query("teams").collect();
-    const available = teams.filter(
-      (t) =>
-        t.isActive &&
-        t.status === "available" &&
-        typeof t.currentLat === "number" &&
-        typeof t.currentLng === "number",
-    );
-    if (available.length === 0) return fallback;
+    const availableTeams = await ctx.db
+      .query("teams")
+      .withIndex("by_status", (q) => q.eq("status", "available"))
+      .collect();
+    const activeAvailable = availableTeams.filter((t) => t.isActive);
+    if (activeAvailable.length === 0) return fallback;
 
     let minDistance = Infinity;
-    for (const t of available) {
-      const d = haversineKm(
-        t.currentLat!,
-        t.currentLng!,
-        address.latitude,
-        address.longitude,
-      );
+    for (const t of activeAvailable) {
+      const loc = await ctx.db
+        .query("teamLocations")
+        .withIndex("by_team_id", (q) => q.eq("teamId", t._id))
+        .first();
+      const lat = loc?.currentLat ?? t.currentLat;
+      const lng = loc?.currentLng ?? t.currentLng;
+      if (typeof lat !== "number" || typeof lng !== "number") continue;
+      const d = haversineKm(lat, lng, address.latitude, address.longitude);
       if (d < minDistance) minDistance = d;
     }
+    if (minDistance === Infinity) return fallback;
 
     const travelMin = Math.ceil(minDistance / AVG_SPEED_KM_PER_MIN);
     const etaMin = Math.max(5, travelMin + SERVICE_TIME_PADDING_MIN);
@@ -939,18 +943,20 @@ export const recomputeActiveBookingEtas = internalMutation({
       for (const booking of bookings) {
         if (!booking.assignedTeamId) continue;
         const team = await ctx.db.get(booking.assignedTeamId);
-        if (
-          !team ||
-          typeof team.currentLat !== "number" ||
-          typeof team.currentLng !== "number"
-        )
-          continue;
+        if (!team) continue;
+        const loc = await ctx.db
+          .query("teamLocations")
+          .withIndex("by_team_id", (q) => q.eq("teamId", team._id))
+          .first();
+        const lat = loc?.currentLat ?? team.currentLat;
+        const lng = loc?.currentLng ?? team.currentLng;
+        if (typeof lat !== "number" || typeof lng !== "number") continue;
         const address = await ctx.db.get(booking.addressId);
         if (!address) continue;
 
         const distance = haversineKm(
-          team.currentLat,
-          team.currentLng,
+          lat,
+          lng,
           address.latitude,
           address.longitude,
         );
