@@ -101,6 +101,17 @@ async function assertTeamStatusUpdateAllowed(
       }
     }
   }
+
+  if (nextStatus === "completed") {
+    const bcs = await ctx.db
+      .query("bookingCars")
+      .withIndex("by_booking_id", (q: any) => q.eq("bookingId", bookingId))
+      .collect();
+    const incomplete = bcs.filter((bc: any) => !bc.completedAt).length;
+    if (incomplete > 0) {
+      throw new Error(`Cannot complete — ${incomplete} car(s) not yet marked done`);
+    }
+  }
 }
 
 async function getDefaultEta(ctx: any) {
@@ -1586,7 +1597,13 @@ export const teamGetBookingDetail = query({
         .query("bookingCars")
         .withIndex("by_booking_id", (q) => q.eq("bookingId", args.bookingId))
         .collect();
-      const cars = await Promise.all(bookingCars.map((bc) => ctx.db.get(bc.carId)));
+      const cars = await Promise.all(
+        bookingCars.map(async (bc) => {
+          const car = await ctx.db.get(bc.carId);
+          if (!car) return null;
+          return { ...car, bookingCarId: bc._id, completedAt: bc.completedAt };
+        }),
+      );
 
       return {
         ...booking,
@@ -1619,7 +1636,13 @@ export const teamGetBookingDetail = query({
       .query("bookingCars")
       .withIndex("by_booking_id", (q) => q.eq("bookingId", args.bookingId))
       .collect();
-    const cars = await Promise.all(bookingCars.map((bc) => ctx.db.get(bc.carId)));
+    const cars = await Promise.all(
+      bookingCars.map(async (bc) => {
+        const car = await ctx.db.get(bc.carId);
+        if (!car) return null;
+        return { ...car, bookingCarId: bc._id, completedAt: bc.completedAt };
+      }),
+    );
 
     return {
       ...booking,
@@ -1783,6 +1806,56 @@ export const teamRejectBookingWithSession = mutation({
       event: "team_rejected",
     });
 
+    return { ok: true };
+  },
+});
+
+export const teamMarkCarComplete = mutation({
+  args: {
+    sessionId: v.string(),
+    bookingCarId: v.id("bookingCars"),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_session_id", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+    if (!session || session.expiresAt < Date.now()) throw new Error("Unauthorized");
+
+    const bc = await ctx.db.get(args.bookingCarId);
+    if (!bc) throw new Error("Not found");
+
+    const booking = await ctx.db.get(bc.bookingId);
+    if (!booking || booking.assignedTeamId !== session.teamId) {
+      throw new Error("Not your booking");
+    }
+
+    await ctx.db.patch(args.bookingCarId, { completedAt: Date.now() });
+    return { ok: true };
+  },
+});
+
+export const teamUnmarkCarComplete = mutation({
+  args: {
+    sessionId: v.string(),
+    bookingCarId: v.id("bookingCars"),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_session_id", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+    if (!session || session.expiresAt < Date.now()) throw new Error("Unauthorized");
+
+    const bc = await ctx.db.get(args.bookingCarId);
+    if (!bc) throw new Error("Not found");
+
+    const booking = await ctx.db.get(bc.bookingId);
+    if (!booking || booking.assignedTeamId !== session.teamId) {
+      throw new Error("Not your booking");
+    }
+
+    await ctx.db.patch(args.bookingCarId, { completedAt: undefined });
     return { ok: true };
   },
 });

@@ -114,6 +114,7 @@ export default defineSchema({
   bookingCars: defineTable({
     bookingId: v.id("bookings"),
     carId: v.id("cars"),
+    completedAt: v.optional(v.number()),
   }).index("by_booking_id", ["bookingId"])
     .index("by_car_id", ["carId"]),
 
