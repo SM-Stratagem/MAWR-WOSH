@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { MutationCtx, mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { requireRole, STAFF_ROLES, ADMIN_ROLES, getCurrentUser } from "./authHelpers";
+import { requireRole, STAFF_ROLES, ADMIN_ROLES, SUPERADMIN_ONLY, getCurrentUser } from "./authHelpers";
 
 async function upsertUserRecord(
   ctx: MutationCtx,
@@ -137,6 +137,89 @@ export const adminListUsers = query({
     }
 
     return users;
+  },
+});
+
+export const adminListStaff = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, STAFF_ROLES);
+    const all = await ctx.db.query("users").take(1000);
+    return all.filter((u) => u.role !== "customer");
+  },
+});
+
+/**
+ * Invite a staff member by email.
+ *
+ * NOTE: The Clerk side of the invite is NOT wired in this phase. This mutation
+ * only creates (or updates) the Convex user row with a placeholder
+ * `pending:<email>` clerkId. The admin must separately invite the email in
+ * Clerk; when the invitee first signs in, the existing upsertUserRecord flow
+ * matches on email and reconciles the real Clerk subject onto this row
+ * (preserving prevClerkIds for audit). Building a proper Clerk SDK invite is
+ * tracked as future work.
+ */
+export const adminInviteStaff = mutation({
+  args: {
+    email: v.string(),
+    name: v.string(),
+    role: v.union(
+      v.literal("operator"),
+      v.literal("admin"),
+      v.literal("superadmin")
+    ),
+  },
+  handler: async (ctx, args) => {
+    // Only superadmin can mint a new superadmin; admin can invite operator/admin.
+    const allowed = args.role === "superadmin" ? SUPERADMIN_ONLY : ADMIN_ROLES;
+    const actor = await requireRole(ctx, allowed);
+
+    const normalizedEmail = args.email.trim().toLowerCase();
+    const normalizedName = args.name.trim() || normalizedEmail.split("@")[0];
+
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        role: args.role,
+        name: normalizedName,
+        isActive: true,
+      });
+      await ctx.db.insert("activityLogs", {
+        actorUserId: actor._id,
+        actorRole: actor.role,
+        entityType: "user",
+        entityId: existing._id.toString(),
+        action: "staff_invited_existing",
+        payload: JSON.stringify({ email: normalizedEmail, role: args.role }),
+        createdAt: Date.now(),
+      });
+      return { userId: existing._id, action: "updated" as const };
+    }
+
+    const userId = await ctx.db.insert("users", {
+      clerkId: `pending:${normalizedEmail}`,
+      email: normalizedEmail,
+      name: normalizedName,
+      role: args.role,
+      isActive: true,
+      createdAt: Date.now(),
+      lastSeenAt: Date.now(),
+    });
+    await ctx.db.insert("activityLogs", {
+      actorUserId: actor._id,
+      actorRole: actor.role,
+      entityType: "user",
+      entityId: userId.toString(),
+      action: "staff_invited",
+      payload: JSON.stringify({ email: normalizedEmail, role: args.role }),
+      createdAt: Date.now(),
+    });
+    return { userId, action: "created" as const };
   },
 });
 
