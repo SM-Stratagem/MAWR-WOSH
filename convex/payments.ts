@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 
 export const createStripePaymentIntent = action({
   args: {
@@ -118,6 +120,60 @@ export const handleStripeWebhook = action({
     }
 
     console.log(`Received webhook: ${event.type}`);
+
+    // Idempotent branches — Stripe may retry. We re-cast the bookingId from
+    // metadata as Id<"bookings"> because Stripe stores it as a string; the
+    // internal mutations gracefully no-op on a missing booking.
+    switch (event.type) {
+      case "payment_intent.succeeded": {
+        const pi = event.data.object as any;
+        const bookingId = pi.metadata?.bookingId;
+        if (bookingId) {
+          try {
+            await ctx.runMutation(internal.bookings.internalConfirmBookingAfterPayment, {
+              bookingId: bookingId as Id<"bookings">,
+              paymentIntentId: pi.id,
+            });
+          } catch (e) {
+            console.error("[Stripe Webhook] confirmBookingAfterPayment failed:", e);
+          }
+        }
+        break;
+      }
+      case "payment_intent.payment_failed": {
+        const pi = event.data.object as any;
+        const bookingId = pi.metadata?.bookingId;
+        if (bookingId) {
+          try {
+            await ctx.runMutation(internal.bookings.markBookingPaymentFailed, {
+              bookingId: bookingId as Id<"bookings">,
+              reason: pi.last_payment_error?.message,
+            });
+          } catch (e) {
+            console.error("[Stripe Webhook] markBookingPaymentFailed failed:", e);
+          }
+        }
+        break;
+      }
+      case "charge.refunded": {
+        const ch = event.data.object as any;
+        const bookingId = ch.metadata?.bookingId;
+        if (bookingId) {
+          try {
+            await ctx.runMutation(internal.bookings.markBookingRefunded, {
+              bookingId: bookingId as Id<"bookings">,
+              reason: "stripe_refund",
+            });
+          } catch (e) {
+            console.error("[Stripe Webhook] markBookingRefunded failed:", e);
+          }
+        }
+        break;
+      }
+      default:
+        console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`);
+    }
+
     return { received: true };
   },
 });

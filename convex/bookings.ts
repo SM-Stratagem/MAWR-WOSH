@@ -642,6 +642,86 @@ export const confirmBookingAfterPayment = mutation({
   },
 });
 
+/**
+ * Internal variant of confirmBookingAfterPayment, used by the Stripe webhook
+ * action. Idempotent: re-firing on an already-confirmed booking is a no-op.
+ */
+export const internalConfirmBookingAfterPayment = internalMutation({
+  args: {
+    bookingId: v.id("bookings"),
+    paymentIntentId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return { ok: false };
+
+    if (booking.paymentStatus === "succeeded" && booking.paymentIntentId === args.paymentIntentId) {
+      return { ok: true, idempotent: true };
+    }
+
+    await ctx.db.patch(args.bookingId, {
+      status: "confirmed",
+      paymentStatus: "succeeded",
+      paymentIntentId: args.paymentIntentId,
+      updatedAt: Date.now(),
+    });
+
+    const user = await ctx.db.get(booking.userId);
+    await ctx.db.insert("activityLogs", {
+      actorUserId: booking.userId,
+      actorRole: user?.role,
+      entityType: "booking",
+      entityId: booking._id.toString(),
+      action: "confirmed",
+      payload: JSON.stringify({ paymentIntentId: args.paymentIntentId, source: "stripe_webhook" }),
+      createdAt: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
+export const markBookingPaymentFailed = internalMutation({
+  args: { bookingId: v.id("bookings"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const b = await ctx.db.get(args.bookingId);
+    if (!b) return { ok: false };
+    if (b.paymentStatus === "failed") return { ok: true }; // idempotent
+    await ctx.db.patch(args.bookingId, {
+      status: "payment_failed",
+      paymentStatus: "failed",
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("activityLogs", {
+      entityType: "booking",
+      entityId: args.bookingId.toString(),
+      action: "payment_failed",
+      payload: args.reason ?? "",
+      createdAt: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
+export const markBookingRefunded = internalMutation({
+  args: { bookingId: v.id("bookings"), reason: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const b = await ctx.db.get(args.bookingId);
+    if (!b) return { ok: false };
+    await ctx.db.patch(args.bookingId, {
+      paymentStatus: "canceled",
+      updatedAt: Date.now(),
+    });
+    await ctx.db.insert("activityLogs", {
+      entityType: "booking",
+      entityId: args.bookingId.toString(),
+      action: "refunded",
+      payload: args.reason ?? "",
+      createdAt: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
 export const cancelBooking = mutation({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
