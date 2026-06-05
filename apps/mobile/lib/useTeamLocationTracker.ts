@@ -6,9 +6,16 @@ import { api } from "../convex/_generated/api";
 const UPDATE_INTERVAL_MS = 30_000;
 const MIN_DISTANCE_M = 25;
 
+// Sample less often / coarser when the driver is idle to save battery; switch
+// to high accuracy + tighter cadence once they have an active booking so the
+// customer's live tracking map stays responsive.
+const IDLE_INTERVAL_MS = 60_000;
+const IDLE_DISTANCE_M = 100;
+
 export function useTeamLocationTracker(
   sessionId: string | undefined,
   enabled: boolean,
+  hasActiveBooking: boolean = false,
 ) {
   const updateLocation = useMutation(api.teams.teamUpdateLocation);
   const subscriptionRef = useRef<Location.LocationSubscription | null>(null);
@@ -17,15 +24,21 @@ export function useTeamLocationTracker(
     let mounted = true;
 
     async function start() {
+      // Bail out entirely when disabled (e.g. team is offline) — no permission
+      // prompt, no watcher, no GPS drain.
       if (!enabled || !sessionId) return;
 
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
 
+      const accuracy = hasActiveBooking
+        ? Location.Accuracy.High
+        : Location.Accuracy.Balanced;
+      const timeInterval = hasActiveBooking ? UPDATE_INTERVAL_MS : IDLE_INTERVAL_MS;
+      const distanceInterval = hasActiveBooking ? MIN_DISTANCE_M : IDLE_DISTANCE_M;
+
       try {
-        const initial = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+        const initial = await Location.getCurrentPositionAsync({ accuracy });
         if (mounted) {
           await updateLocation({
             sessionId,
@@ -37,9 +50,9 @@ export function useTeamLocationTracker(
 
       const sub = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: UPDATE_INTERVAL_MS,
-          distanceInterval: MIN_DISTANCE_M,
+          accuracy,
+          timeInterval,
+          distanceInterval,
         },
         (loc) => {
           if (!mounted) return;
@@ -60,5 +73,5 @@ export function useTeamLocationTracker(
       subscriptionRef.current?.remove();
       subscriptionRef.current = null;
     };
-  }, [sessionId, enabled, updateLocation]);
+  }, [sessionId, enabled, hasActiveBooking, updateLocation]);
 }
