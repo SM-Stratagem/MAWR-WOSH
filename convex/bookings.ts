@@ -19,6 +19,31 @@ function generateBookingNumber(): string {
 const AVG_SPEED_KM_PER_MIN = 0.4;
 const SERVICE_TIME_PADDING_MIN = 5;
 
+function isWithinHour(a: number | undefined, b: number | undefined): boolean {
+  if (!a || !b) return false;
+  return Math.abs(a - b) <= 60 * 60 * 1000;
+}
+
+async function resolveZoneForAddress(
+  ctx: any,
+  address: { formattedAddress?: string; zoneId?: any },
+) {
+  // 1. Explicit pointer wins.
+  if (address.zoneId) {
+    const z = await ctx.db.get(address.zoneId);
+    if (z && z.isActive !== false) return z;
+  }
+  // 2. Fall back to substring match against active zone names.
+  const zones = await ctx.db.query("zones").collect();
+  const haystack = (address.formattedAddress ?? "").toLowerCase();
+  for (const z of zones) {
+    if (z.isActive === false) continue;
+    const name = String(z.name ?? "").toLowerCase();
+    if (name && haystack.includes(name)) return z;
+  }
+  return null;
+}
+
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -298,6 +323,7 @@ export const createBookingDraft = mutation({
     carIds: v.array(v.id("cars")),
     scheduledWindow: v.optional(v.union(v.literal("morning"), v.literal("afternoon"), v.literal("evening"))),
     scheduledDate: v.optional(v.number()),
+    subscriptionDiscountPercent: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -320,9 +346,19 @@ export const createBookingDraft = mutation({
     const uniqueCarIds = await getOwnedActiveUniqueCarIds(ctx, user._id, args.carIds);
     const carCount = uniqueCarIds.length;
     const subtotal = washType.basePrice * carCount;
-    const serviceFee = 0;
-    const discount = 0;
-    const total = subtotal + serviceFee - discount;
+
+    // Read all settings once and reuse below (pricing, ETA, zone overrides, capacity).
+    const settingsRows = await ctx.db.query("systemSettings").collect();
+    const settingsMap: Record<string, string> = {};
+    for (const s of settingsRows) settingsMap[s.key] = s.value;
+
+    const serviceFeePct = parseFloat(settingsMap["default_service_fee_pct"] ?? "0");
+    const rawDiscountPct = args.subscriptionDiscountPercent ?? 0;
+    const discountPct = Math.max(0, Math.min(100, rawDiscountPct));
+
+    const serviceFee = Math.round(subtotal * (serviceFeePct / 100));
+    const discount = Math.round(subtotal * (discountPct / 100));
+    const total = subtotal - discount + serviceFee;
 
     let scheduledFor: number | undefined;
     if (args.scheduledWindow && args.scheduledDate) {
@@ -337,25 +373,21 @@ export const createBookingDraft = mutation({
       scheduledFor = date.getTime();
     }
 
-    // Calculate ETA based on zone settings
-    const settings = await ctx.db.query("systemSettings").collect();
-    const settingsMap: Record<string, string> = {};
-    for (const s of settings) {
-      settingsMap[s.key] = s.value;
-    }
-
+    // Calculate ETA: prefer the real zones table; fall back to default settings,
+    // and finally to the legacy zone_etas systemSettings JSON if present.
     const defaultEtaMin = parseInt(settingsMap["default_eta_min"] || "30", 10);
     const defaultEtaMax = parseInt(settingsMap["default_eta_max"] || "45", 10);
 
-    // Simple zone-based ETA: check if address matches any zone
-    // For MVP: zone is matched if the formattedAddress contains zone keywords
-    const zoneOverrides = await ctx.db.query("systemSettings").withIndex("by_key", (q) => q.eq("key", "zone_etas")).first();
     let etaMin = defaultEtaMin;
     let etaMax = defaultEtaMax;
 
-    if (zoneOverrides) {
+    const resolvedZone = await resolveZoneForAddress(ctx, address);
+    if (resolvedZone) {
+      etaMin = resolvedZone.baseEtaMin;
+      etaMax = resolvedZone.baseEtaMax;
+    } else if (settingsMap["zone_etas"]) {
       try {
-        const zoneData = JSON.parse(zoneOverrides.value);
+        const zoneData = JSON.parse(settingsMap["zone_etas"]);
         for (const [zone, eta] of Object.entries(zoneData as Record<string, { min: number; max: number }>)) {
           if (address.formattedAddress.toLowerCase().includes(zone.toLowerCase())) {
             etaMin = eta.min;
@@ -386,6 +418,7 @@ export const createBookingDraft = mutation({
       scheduledFor,
       scheduledWindow: args.scheduledWindow,
       scheduledDate: args.scheduledDate,
+      subscriptionDiscountPercent: discountPct,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -428,28 +461,16 @@ export const createBookingDraft = mutation({
               const distance = R * c;
 
               let windowCount = 0;
-              if (args.scheduledWindow && args.scheduledDate) {
-                const bookingStart = new Date(args.scheduledDate);
-                const windowStarts: Record<string, number> = { morning: 8, afternoon: 12, evening: 16 };
-                bookingStart.setHours(windowStarts[args.scheduledWindow], 0, 0, 0);
-                const bookingEnd = new Date(bookingStart);
-                bookingEnd.setHours(bookingEnd.getHours() + 4);
-
+              // Use a ±1-hour overlap check against any other team booking with
+              // a concrete scheduledFor — much tighter than the old 4-hour block.
+              if (scheduledFor) {
                 const teamBookings = await ctx.db.query("bookings")
-                  .filter((q) => q.eq(q.field("assignedTeamId"), team._id))
+                  .withIndex("by_assigned_team", (q) => q.eq("assignedTeamId", team._id))
                   .collect();
 
                 for (const tb of teamBookings) {
-                  if (tb.scheduledWindow === args.scheduledWindow && tb.scheduledDate) {
-                    const tbStart = new Date(tb.scheduledDate);
-                    const tbWindowStarts: Record<string, number> = { morning: 8, afternoon: 12, evening: 16 };
-                    tbStart.setHours(tbWindowStarts[tb.scheduledWindow], 0, 0, 0);
-                    const tbEnd = new Date(tbStart);
-                    tbEnd.setHours(tbEnd.getHours() + 4);
-
-                    if (tbStart.getTime() < bookingEnd.getTime() && tbEnd.getTime() > bookingStart.getTime()) {
-                      windowCount++;
-                    }
+                  if (isWithinHour(tb.scheduledFor, scheduledFor)) {
+                    windowCount++;
                   }
                 }
               }

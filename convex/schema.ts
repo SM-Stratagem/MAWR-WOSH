@@ -42,6 +42,7 @@ export default defineSchema({
     latitude: v.number(),
     longitude: v.number(),
     isDefault: v.boolean(),
+    zoneId: v.optional(v.id("zones")),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user_id", ["userId"])
