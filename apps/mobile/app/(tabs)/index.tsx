@@ -37,6 +37,8 @@ export default function HomeScreen() {
   const carsQuery = useQuery(api.cars.listMyCars);
   const addressesQuery = useQuery(api.addresses.listMyAddresses);
   const washTypesQuery = useQuery(api.washTypes.listWashTypes);
+  const currencySetting = useQuery(api.settings.getPublic, { key: "currency" });
+  const currency = currencySetting ?? "AED";
 
   const cars = carsQuery || [];
   const addresses = addressesQuery || [];
@@ -179,7 +181,7 @@ export default function HomeScreen() {
                       <Ionicons name="information-circle-outline" size={16} color={colors.ink_dim} />
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.washTypePrice}>{wash.basePrice} AED</Text>
+                  <Text style={styles.washTypePrice}>{wash.basePrice} {currency}</Text>
                 </View>
                 <Text style={styles.washTypeDesc}>{wash.description}</Text>
               </TouchableOpacity>
@@ -191,7 +193,7 @@ export default function HomeScreen() {
         {selectedWashType && selectedCars.length > 0 && (
           <TouchableOpacity style={styles.bookNowButton} onPress={handleContinue}>
             <Text style={styles.bookNowButtonText}>
-              BOOK {selectedWashType.name?.toUpperCase()} — {selectedWashType.basePrice * selectedCars.length} AED
+              BOOK {selectedWashType.name?.toUpperCase()} — {selectedWashType.basePrice * selectedCars.length} {currency}
             </Text>
           </TouchableOpacity>
         )}

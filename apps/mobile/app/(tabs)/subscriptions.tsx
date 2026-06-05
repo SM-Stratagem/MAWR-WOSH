@@ -21,6 +21,8 @@ const FREQUENCY_LABELS: Record<string, string> = {
 export default function SubscriptionsScreen() {
   const router = useRouter();
   const subscriptions = useQuery(api.subscriptions.listMySubscriptions) || [];
+  const currencySetting = useQuery(api.settings.getPublic, { key: "currency" });
+  const currency = currencySetting ?? "AED";
   const pauseSubscription = useMutation(api.subscriptions.pauseSubscription);
   const resumeSubscription = useMutation(api.subscriptions.resumeMySubscription);
   const cancelSubscription = useMutation(api.subscriptions.cancelSubscription);
@@ -101,7 +103,7 @@ export default function SubscriptionsScreen() {
             <Text style={styles.priceValue}>
               {activePlan?.pricePerRun || 0}
             </Text>
-            <Text style={styles.priceUnit}> AED / {activePlan ? (FREQUENCY_LABELS[activePlan.frequency] || "PLAN") : "PLAN"}</Text>
+            <Text style={styles.priceUnit}> {currency} / {activePlan ? (FREQUENCY_LABELS[activePlan.frequency] || "PLAN") : "PLAN"}</Text>
           </View>
         </View>
 
@@ -176,7 +178,7 @@ export default function SubscriptionsScreen() {
                   </View>
                 </View>
                 <Text style={styles.subFrequency}>
-                  {(FREQUENCY_LABELS[sub.frequency] || sub.frequency).toUpperCase()} · {sub.pricePerRun || 0} AED / RUN
+                  {(FREQUENCY_LABELS[sub.frequency] || sub.frequency).toUpperCase()} · {sub.pricePerRun || 0} {currency} / RUN
                 </Text>
                 <View style={styles.subActions}>
                   {sub.status === "active" && (

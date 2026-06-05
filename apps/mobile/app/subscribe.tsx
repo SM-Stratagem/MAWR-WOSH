@@ -20,13 +20,15 @@ const FREQUENCIES = [
   { key: "monthly", label: "MONTHLY", period: "Every month" },
 ] as const;
 
-const DISCOUNT_RATE = 0.15;
-
 export default function SubscribeScreen() {
   const router = useRouter();
   const cars = useQuery(api.cars.listMyCars) || [];
   const addresses = useQuery(api.addresses.listMyAddresses) || [];
   const washTypes = useQuery(api.washTypes.listWashTypes) || [];
+  const currencySetting = useQuery(api.settings.getPublic, { key: "currency" });
+  const discountPctSetting = useQuery(api.settings.getPublic, { key: "subscription_discount_pct" });
+  const currency = currencySetting ?? "AED";
+  const subscriptionDiscountPct = discountPctSetting ? Number(discountPctSetting) : 15;
   const createSubscription = useMutation(api.subscriptions.createSubscription);
 
   const [selectedCars, setSelectedCars] = useState<string[]>([]);
@@ -41,7 +43,7 @@ export default function SubscribeScreen() {
   const wash = (washTypes as any[]).find((w: any) => w._id === selectedWashId);
   const carCount = selectedCars.length;
   const basePrice = wash ? wash.basePrice * carCount : 0;
-  const pricePerRun = Math.round(basePrice * (1 - DISCOUNT_RATE));
+  const pricePerRun = Math.round(basePrice * (1 - subscriptionDiscountPct / 100));
 
   const canSubmit =
     !!wash && carCount > 0 && !!defaultAddress && !submitting;
@@ -108,7 +110,7 @@ export default function SubscribeScreen() {
                 <Text style={styles.optionTitle}>{w.name?.toUpperCase()}</Text>
                 <Text style={styles.optionDesc}>{w.description}</Text>
               </View>
-              <Text style={styles.optionPrice}>{w.basePrice} AED</Text>
+              <Text style={styles.optionPrice}>{w.basePrice} {currency}</Text>
             </TouchableOpacity>
           ))}
 
@@ -172,10 +174,10 @@ export default function SubscribeScreen() {
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>PER RUN</Text>
             <View style={styles.summaryPriceRow}>
-              <Text style={styles.summaryStrike}>{basePrice} AED</Text>
-              <Text style={styles.summaryPrice}>{pricePerRun} AED</Text>
+              <Text style={styles.summaryStrike}>{basePrice} {currency}</Text>
+              <Text style={styles.summaryPrice}>{pricePerRun} {currency}</Text>
             </View>
-            <Text style={styles.summaryHint}>Save 15% with a subscription.</Text>
+            <Text style={styles.summaryHint}>Save {subscriptionDiscountPct}% with a subscription.</Text>
           </View>
         )}
 
