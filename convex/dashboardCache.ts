@@ -1,5 +1,5 @@
 import { internalMutation, query } from "./_generated/server";
-import { ADMIN_ROLES, requireRole } from "./authHelpers";
+import { ADMIN_ROLES, STAFF_ROLES, requireRole } from "./authHelpers";
 
 type Snapshot = {
   bookings: { total: number; byStatus: Record<string, number> };
@@ -80,5 +80,43 @@ export const getLatestSnapshot = query({
       .first();
     if (!row) return null;
     return JSON.parse(row.data) as Snapshot;
+  },
+});
+
+/**
+ * Live operational health metrics. Cheap aggregates over current state for the
+ * /dashboard/health page. Computes inline rather than from the snapshot so the
+ * "stuck > 1h" and "paymentFailed (24h)" counters stay current between snapshots.
+ */
+export const adminHealthMetrics = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireRole(ctx, STAFF_ROLES);
+    const now = Date.now();
+    const cutoff24h = now - 24 * 60 * 60 * 1000;
+    const cutoff1h = now - 60 * 60 * 1000;
+
+    const bookings = await ctx.db.query("bookings").collect();
+    const last24h = bookings.filter((b) => b._creationTime >= cutoff24h);
+    const completed24h = last24h.filter((b) => b.status === "completed").length;
+    const failed24h = last24h.filter((b) => b.paymentStatus === "failed").length;
+    const stuckAssigned = bookings.filter(
+      (b) => b.status === "team_assigned" && b.updatedAt < cutoff1h
+    ).length;
+
+    const teams = await ctx.db.query("teams").collect();
+    const teamsByStatus = { available: 0, busy: 0, offline: 0 };
+    for (const t of teams) {
+      if (t.status in teamsByStatus) (teamsByStatus as any)[t.status]++;
+    }
+
+    return {
+      bookings24h: last24h.length,
+      completed24h,
+      paymentFailed24h: failed24h,
+      stuckAssigned1h: stuckAssigned,
+      teams: teamsByStatus,
+      computedAt: now,
+    };
   },
 });

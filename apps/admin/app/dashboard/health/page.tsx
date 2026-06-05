@@ -2,7 +2,6 @@
 
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { HeartPulse } from "lucide-react";
 
 const checklist = [
   { label: "Stripe live mode enabled", status: "done" },
@@ -27,18 +26,73 @@ const statusLabel: Record<string, string> = {
 };
 
 export default function HealthPage() {
+  const metrics = useQuery(api.dashboardCache.adminHealthMetrics);
   const teams = useQuery(api.teams.adminListTeams);
+
+  const cards = metrics
+    ? [
+        { label: "Bookings (24h)", value: metrics.bookings24h, hot: false },
+        { label: "Completed (24h)", value: metrics.completed24h, hot: false },
+        {
+          label: "Payment failed (24h)",
+          value: metrics.paymentFailed24h,
+          hot: metrics.paymentFailed24h > 5,
+        },
+        {
+          label: "Stuck team_assigned > 1h",
+          value: metrics.stuckAssigned1h,
+          hot: metrics.stuckAssigned1h > 0,
+        },
+        { label: "Teams available", value: metrics.teams.available, hot: metrics.teams.available === 0 },
+        { label: "Teams busy", value: metrics.teams.busy, hot: false },
+        { label: "Teams offline", value: metrics.teams.offline, hot: false },
+      ]
+    : [];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <div className="text-[var(--green)] text-xs font-[900] tracking-[.18em] uppercase mb-2">Launch readiness</div>
+          <div className="text-[var(--green)] text-xs font-[900] tracking-[.18em] uppercase mb-2">
+            Operations
+          </div>
           <h1 className="text-[32px] font-[900] tracking-tight m-0">System Health</h1>
-          <p className="text-[var(--muted)] text-[15px] mt-3">Track Stripe, Google Maps, GPS, push notifications, webhooks, and app launch blockers.</p>
+          <p className="text-[var(--muted)] text-[15px] mt-3">
+            Live operational metrics and launch-readiness checklist.
+            {metrics && (
+              <span className="ml-2 text-[12px]">
+                Updated {new Date(metrics.computedAt).toLocaleTimeString()}
+              </span>
+            )}
+          </p>
         </div>
-        <button className="btn-primary">Run Health Check</button>
       </div>
+
+      {metrics ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {cards.map((c) => (
+            <div
+              key={c.label}
+              className={`card p-[18px] min-h-[120px] ${
+                c.hot ? "border border-[var(--red)] bg-[rgba(255,77,79,0.06)]" : ""
+              }`}
+            >
+              <div className="text-[var(--muted)] text-[13px] font-[750]">{c.label}</div>
+              <div
+                className={`text-[30px] font-[950] tracking-tight mt-1 font-mono ${
+                  c.hot ? "text-[var(--red)]" : ""
+                }`}
+              >
+                {c.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="card p-8 text-center text-[var(--muted)] text-[13px]">
+          Loading metrics…
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="card p-5">
@@ -74,12 +128,19 @@ export default function HealthPage() {
 
       <div className="card p-5">
         <h2 className="text-[20px] font-[900] m-0 mb-4">Launch Checklist</h2>
-        <p className="text-[var(--muted)] text-[13px] mb-5">Must be green before App Store / Play Store submission</p>
+        <p className="text-[var(--muted)] text-[13px] mb-5">
+          Must be green before App Store / Play Store submission
+        </p>
         <div className="space-y-2.5">
           {checklist.map((item) => (
-            <div key={item.label} className="flex items-center justify-between gap-4 p-3.5 rounded-[13px] bg-[var(--panel-2)] border border-[var(--border-soft)]">
+            <div
+              key={item.label}
+              className="flex items-center justify-between gap-4 p-3.5 rounded-[13px] bg-[var(--panel-2)] border border-[var(--border-soft)]"
+            >
               <span className="text-[14px] font-[700]">
-                <span className={`inline-block w-[9px] h-[9px] rounded-full mr-2 ${statusDot[item.status]}`} />
+                <span
+                  className={`inline-block w-[9px] h-[9px] rounded-full mr-2 ${statusDot[item.status]}`}
+                />
                 {item.label}
               </span>
               <span className="text-[var(--muted)] text-[13px]">{statusLabel[item.status]}</span>
