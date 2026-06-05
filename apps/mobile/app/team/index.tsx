@@ -53,9 +53,50 @@ export default function TeamIndexScreen() {
     hasValidSession ? { sessionId: session!.sessionId } : "skip"
   );
 
+  const mySessions = useQuery(
+    api.teamAuth.listMySessions,
+    hasValidSession ? { sessionId: session!.sessionId } : "skip"
+  );
+  const revokeOthers = useMutation(api.teamAuth.revokeOtherSessions);
+
+  const handleRevokeOthers = () => {
+    if (!session?.sessionId || !mySessions || mySessions.length <= 1) return;
+    const others = mySessions.length - 1;
+    Alert.alert(
+      "Log out other devices?",
+      `${others} other session${others === 1 ? "" : "s"} will end immediately.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log out others",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await revokeOthers({ sessionId: session.sessionId });
+            } catch (error: any) {
+              Alert.alert(
+                "Could not log out other devices",
+                getUserFacingErrorMessage(error, "Failed to revoke sessions."),
+              );
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Driver has an "active" booking when one of their assigned bookings is in a
+  // status where the customer expects live updates. Idle drivers still report
+  // location (for dispatch ETAs) but with coarser accuracy.
+  const ACTIVE_STATUSES = ["team_assigned", "on_the_way", "arrived", "washing_in_progress"];
+  const hasActiveBooking = Array.isArray(bookings)
+    ? bookings.some((b: any) => ACTIVE_STATUSES.includes(b.status))
+    : false;
+
   useTeamLocationTracker(
     session?.sessionId,
-    Boolean(hasValidSession && teamProfile && teamProfile.status !== "offline")
+    Boolean(hasValidSession && teamProfile && teamProfile.status !== "offline"),
+    hasActiveBooking,
   );
 
   const handleLogout = async () => {
@@ -145,6 +186,17 @@ export default function TeamIndexScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {mySessions && mySessions.length > 1 && (
+        <TouchableOpacity style={styles.multiDeviceBanner} onPress={handleRevokeOthers}>
+          <Text style={styles.multiDeviceBannerTitle}>
+            Signed in on {mySessions.length} devices
+          </Text>
+          <Text style={styles.multiDeviceBannerAction}>
+            Tap to log out the other{mySessions.length === 2 ? "" : "s"}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.content}>
         <Text style={styles.sectionTitle}>Assigned Bookings ({bookings.length})</Text>
@@ -384,5 +436,25 @@ const styles = StyleSheet.create({
   },
   statusToggleTextOffline: {
     color: colors.text_secondary,
+  },
+  multiDeviceBanner: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.warning + "20",
+    borderWidth: 1,
+    borderColor: colors.warning,
+  },
+  multiDeviceBannerTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: colors.warning,
+  },
+  multiDeviceBannerAction: {
+    fontSize: 12,
+    color: colors.warning,
+    marginTop: 2,
   },
 });
