@@ -248,6 +248,11 @@ export default defineSchema({
     updatedAt: v.number(),
   }),
 
+  dashboardSnapshots: defineTable({
+    computedAt: v.number(),
+    data: v.string(), // JSON-encoded lightweight aggregates
+  }).index("by_computed_at", ["computedAt"]),
+
   refunds: defineTable({
     bookingId: v.id("bookings"),
     userId: v.id("users"),

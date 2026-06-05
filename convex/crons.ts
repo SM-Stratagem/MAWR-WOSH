@@ -17,4 +17,11 @@ crons.interval(
   {}
 );
 
+crons.interval(
+  "dashboard snapshot",
+  { minutes: 5 },
+  internal.dashboardCache.computeDashboardSnapshot,
+  {}
+);
+
 export default crons;
