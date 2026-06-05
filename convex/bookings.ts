@@ -858,15 +858,87 @@ export const adminGetBookingDetail = query({
       .withIndex("by_booking_id", (q) => q.eq("bookingId", args.bookingId))
       .first();
 
+    const photoRows = await ctx.db
+      .query("bookingPhotos")
+      .withIndex("by_booking_id", (q) => q.eq("bookingId", args.bookingId))
+      .collect();
+    const photos = await Promise.all(
+      photoRows.map(async (p) => {
+        let url: string | null = null;
+        try {
+          url = await ctx.storage.getUrl(p.storageId);
+        } catch {
+          url = null;
+        }
+        return { ...p, url: url ?? p.url };
+      }),
+    );
+
     return {
-      ...booking,
+      booking,
       user,
       address,
       washType,
       cars: cars.filter(Boolean),
       team,
       assignment,
+      photos,
     };
+  },
+});
+
+export const adminCreateManualBooking = mutation({
+  args: {
+    userId: v.id("users"),
+    addressId: v.id("addresses"),
+    washTypeId: v.id("washTypes"),
+    carIds: v.array(v.id("cars")),
+    scheduledFor: v.optional(v.number()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const adminUser = await requireRole(ctx, STAFF_ROLES);
+
+    const washType = await ctx.db.get(args.washTypeId);
+    if (!washType) throw new Error("Wash type not found");
+
+    const carCount = args.carIds.length;
+    if (carCount === 0) throw new Error("Select at least one car");
+    const subtotal = washType.basePrice * carCount;
+
+    const bookingId = await ctx.db.insert("bookings", {
+      bookingNumber: `M-${Date.now().toString(36).toUpperCase()}`,
+      userId: args.userId,
+      addressId: args.addressId,
+      washTypeId: args.washTypeId,
+      status: "confirmed",
+      selectedCarCount: carCount,
+      subtotal,
+      serviceFee: 0,
+      discount: 0,
+      total: subtotal,
+      currency: washType.currency,
+      paymentStatus: "succeeded", // Manual = paid offline
+      scheduledFor: args.scheduledFor,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    for (const carId of args.carIds) {
+      await ctx.db.insert("bookingCars", { bookingId, carId });
+    }
+
+    await ctx.db.insert("activityLogs", {
+      actorUserId: adminUser._id,
+      actorRole: adminUser.role,
+      entityType: "booking",
+      entityId: bookingId.toString(),
+      action: "manual_created",
+      payload: args.notes ?? "",
+      createdAt: Date.now(),
+    });
+
+    return { bookingId };
   },
 });
 
