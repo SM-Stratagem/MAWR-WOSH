@@ -1,5 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 
 const http = httpRouter();
 
@@ -91,10 +92,19 @@ http.route({
         case "user.deleted": {
           const clerkId = data.id;
           console.log("[Clerk Webhook] User deleted:", clerkId);
-          
-          const user = await ctx.runQuery(require("./users").getByClerkId, { clerkId });
+
+          if (!clerkId) break; // idempotent — missing id is a no-op
+
+          const user = await ctx.runQuery(internal.users.internalGetByClerkId, {
+            clerkId,
+          });
           if (user) {
-            console.log("[Clerk Webhook] Found user to deactivate:", user._id);
+            console.log("[Clerk Webhook] Cascading delete for user:", user._id);
+            await ctx.runMutation(internal.users.cascadeDeleteUser, {
+              userId: user._id,
+            });
+          } else {
+            console.log("[Clerk Webhook] No user found for clerkId, skipping");
           }
           break;
         }

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
-import { MutationCtx, mutation, query } from "./_generated/server";
+import { MutationCtx, mutation, query, internalMutation, internalQuery } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireRole, STAFF_ROLES, ADMIN_ROLES, getCurrentUser } from "./authHelpers";
 
 async function upsertUserRecord(
@@ -75,6 +76,17 @@ async function upsertUserRecord(
 }
 
 export const getByClerkId = query({
+  args: { clerkId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_clerk_id", (q) => q.eq("clerkId", args.clerkId))
+      .first();
+  },
+});
+
+// Internal counterpart for use from HTTP actions / scheduler chains.
+export const internalGetByClerkId = internalQuery({
   args: { clerkId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
@@ -319,5 +331,77 @@ export const createAdminWithClerkId = mutation({
 
     console.log(`[Create Admin] Created admin user ${args.email} with Clerk ID: ${args.clerkId}`);
     return userId;
+  },
+});
+
+/**
+ * Cascade delete a user and their owned data.
+ *
+ * - Deletes cars and the bookingCars rows that reference them.
+ * - Deletes addresses.
+ * - Cancels subscriptions (preserves history rather than hard-deleting).
+ * - Leaves bookings untouched for audit / financial history.
+ *
+ * Idempotent: missing user is a no-op.
+ */
+export const cascadeDeleteUser = internalMutation({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.get(args.userId);
+    if (!user) return { ok: true };
+
+    // Cars + their booking-cars rows
+    const cars = await ctx.db
+      .query("cars")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+    for (const c of cars) {
+      const bcs = await ctx.db
+        .query("bookingCars")
+        .withIndex("by_car_id", (q) => q.eq("carId", c._id))
+        .collect();
+      for (const bc of bcs) await ctx.db.delete(bc._id);
+      await ctx.db.delete(c._id);
+    }
+
+    // Addresses
+    const addrs = await ctx.db
+      .query("addresses")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+    for (const a of addrs) await ctx.db.delete(a._id);
+
+    // Subscriptions — cancel rather than delete (preserves history)
+    const subs = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_user_id", (q) => q.eq("userId", args.userId))
+      .collect();
+    for (const s of subs) {
+      await ctx.db.patch(s._id, { status: "canceled", updatedAt: Date.now() });
+    }
+
+    // Bookings: preserve for audit/financial history. Patch nothing.
+
+    // User
+    await ctx.db.delete(args.userId);
+
+    await ctx.db.insert("activityLogs", {
+      entityType: "user",
+      entityId: args.userId.toString(),
+      action: "cascade_deleted",
+      createdAt: Date.now(),
+    });
+    return { ok: true };
+  },
+});
+
+export const deleteMyAccount = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUser(ctx);
+    await ctx.scheduler.runAfter(0, internal.users.cascadeDeleteUser, {
+      userId: user._id,
+    });
+    return { ok: true };
   },
 });
