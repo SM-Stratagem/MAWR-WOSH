@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { normalizePhone } from "./phone";
 import { requireRole, STAFF_ROLES, ADMIN_ROLES } from "./authHelpers";
+import { hashPin } from "./pinHash";
 
 export const listTeams = query({
   args: {},
@@ -41,7 +42,9 @@ export const adminUpsertTeam = mutation({
       const updatesWithPhone: any = { ...updates, phone: normalizedPhone };
 
       if (pin) {
-        updatesWithPhone.pinHash = await hashPin(pin);
+        const { hash, salt } = await hashPin(pin);
+        updatesWithPhone.pinHash = hash;
+        updatesWithPhone.pinSalt = salt;
       }
 
       await ctx.db.patch(teamId, updatesWithPhone);
@@ -52,7 +55,7 @@ export const adminUpsertTeam = mutation({
         entityType: "team",
         entityId: teamId.toString(),
         action: "updated",
-        payload: JSON.stringify({ ...updatesWithPhone, pinHash: "[REDACTED]" }),
+        payload: JSON.stringify({ ...updatesWithPhone, pinHash: "[REDACTED]", pinSalt: "[REDACTED]" }),
         createdAt: Date.now(),
       });
 
@@ -61,10 +64,12 @@ export const adminUpsertTeam = mutation({
       if (!args.pin) {
         throw new Error("PIN is required when creating a new team");
       }
+      const { hash, salt } = await hashPin(args.pin);
       const id = await ctx.db.insert("teams", {
         name: args.name,
         phone: normalizedPhone,
-        pinHash: await hashPin(args.pin),
+        pinHash: hash,
+        pinSalt: salt,
         status: args.status,
         currentLat: args.currentLat,
         currentLng: args.currentLng,
@@ -234,10 +239,43 @@ export const teamGetProfile = query({
   },
 });
 
-async function hashPin(pin: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin + "wosh-team-secret-salt");
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+export const adminResetTeamPin = mutation({
+  args: {
+    teamId: v.id("teams"),
+    newPin: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const adminUser = await requireRole(ctx, ADMIN_ROLES);
+
+    if (!args.newPin || args.newPin.length < 4 || args.newPin.length > 6) {
+      throw new Error("PIN must be 4-6 digits");
+    }
+
+    const team = await ctx.db.get(args.teamId);
+    if (!team) throw new Error("Team not found");
+
+    const { hash, salt } = await hashPin(args.newPin);
+    await ctx.db.patch(args.teamId, { pinHash: hash, pinSalt: salt });
+
+    // Revoke all existing sessions for this team
+    const sessions = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))
+      .collect();
+    for (const s of sessions) {
+      await ctx.db.delete(s._id);
+    }
+
+    await ctx.db.insert("activityLogs", {
+      actorUserId: adminUser._id,
+      actorRole: adminUser.role,
+      entityType: "team",
+      entityId: args.teamId.toString(),
+      action: "pin_reset",
+      payload: JSON.stringify({ revokedSessions: sessions.length }),
+      createdAt: Date.now(),
+    });
+
+    return { success: true, revokedSessions: sessions.length };
+  },
+});

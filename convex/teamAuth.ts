@@ -1,11 +1,35 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { normalizePhone } from "./phone";
+import { hashPin, verifyPin } from "./pinHash";
+
+/**
+ * Legacy PIN verifier (SHA-256 + global salt).
+ *
+ * TODO: Remove once all teams have reset to bcrypt PINs.
+ *
+ * Migration plan:
+ *   1. Operators reset PINs via adminResetTeamPin (writes bcrypt hash + salt).
+ *   2. Once teamSessions usage and login analytics confirm 100% of active
+ *      teams are on bcrypt (team.pinHash starts with "$2" AND team.pinSalt
+ *      is defined), drop this helper and remove the back-compat branch in
+ *      `login` below.
+ */
+async function legacyHashPin(pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin + "wosh-team-secret-salt");
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24; // 24h
 
 export const login = mutation({
   args: {
     phone: v.string(),
     pin: v.string(),
+    deviceLabel: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const phone = normalizePhone(args.phone);
@@ -60,8 +84,19 @@ export const login = mutation({
       throw new Error("Team account is deactivated");
     }
 
-    const pinHash = await hashPin(pin);
-    if (team.pinHash !== pinHash) {
+    // Back-compat: bcrypt hashes start with "$2"; legacy SHA-256 hashes are
+    // hex-only. If pinSalt is set or hash looks like bcrypt, verify with
+    // bcrypt; otherwise fall through to legacy SHA-256 verification.
+    let pinOk = false;
+    if (team.pinHash.startsWith("$2")) {
+      pinOk = await verifyPin(pin, team.pinHash);
+    } else {
+      // Legacy path — should be migrated via adminResetTeamPin ASAP.
+      const legacy = await legacyHashPin(pin);
+      pinOk = team.pinHash === legacy;
+    }
+
+    if (!pinOk) {
       await recordAttempt(false);
       throw new Error("Invalid phone or PIN");
     }
@@ -75,12 +110,13 @@ export const login = mutation({
     }
 
     const sessionId = crypto.randomUUID();
-    const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+    const expiresAt = Date.now() + SESSION_TTL_MS;
 
     await ctx.db.insert("teamSessions", {
       teamId: team._id,
       sessionId,
       expiresAt,
+      deviceLabel: args.deviceLabel,
     });
 
     return {
@@ -148,17 +184,58 @@ export const getMyTeam = query({
 export const cleanupExpiredSessions = mutation({
   args: {},
   handler: async (ctx) => {
-    const sessions = await ctx.db.query("teamSessions").collect();
     const now = Date.now();
-
-    for (const session of sessions) {
-      if (session.expiresAt < now) {
-        await ctx.db.delete(session._id);
-      }
-    }
+    const expired = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_expires_at", (q) => q.lt("expiresAt", now))
+      .collect();
+    for (const s of expired) await ctx.db.delete(s._id);
+    return { deleted: expired.length };
   },
 });
 
+export const listMySessions = query({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_session_id", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+    if (!session || session.expiresAt < Date.now()) throw new Error("Unauthorized");
+    return await ctx.db
+      .query("teamSessions")
+      .withIndex("by_team_id", (q) => q.eq("teamId", session.teamId))
+      .collect();
+  },
+});
+
+export const revokeOtherSessions = mutation({
+  args: { sessionId: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_session_id", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+    if (!session || session.expiresAt < Date.now()) throw new Error("Unauthorized");
+    const all = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_team_id", (q) => q.eq("teamId", session.teamId))
+      .collect();
+    let revoked = 0;
+    for (const s of all) {
+      if (s._id !== session._id) {
+        await ctx.db.delete(s._id);
+        revoked++;
+      }
+    }
+    return { revoked };
+  },
+});
+
+/**
+ * @deprecated Use adminResetTeamPin (in teams.ts) instead.
+ * Kept for back-compat with admin UI; routes to the new bcrypt-based flow.
+ */
 export const resetPin = mutation({
   args: {
     teamId: v.id("teams"),
@@ -183,12 +260,27 @@ export const resetPin = mutation({
       throw new Error("Unauthorized: Admin access required");
     }
 
-    const pinHash = await hashPin(args.newPin);
-    await ctx.db.patch(args.teamId, { pinHash });
+    const { hash, salt } = await hashPin(args.newPin);
+    await ctx.db.patch(args.teamId, { pinHash: hash, pinSalt: salt });
+
+    // Revoke all existing sessions for this team
+    const sessions = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))
+      .collect();
+    for (const s of sessions) {
+      await ctx.db.delete(s._id);
+    }
+
     return { success: true };
   },
 });
 
+/**
+ * @deprecated Use adminResetTeamPin instead. Accepts a pre-hashed PIN, which
+ * the new bcrypt flow can't support — kept only so admin clients that already
+ * use it don't crash.
+ */
 export const adminUpdateTeamPin = mutation({
   args: {
     teamId: v.id("teams"),
@@ -218,7 +310,7 @@ export const adminUpdateTeamPin = mutation({
     // Revoke all existing sessions for this team
     const sessions = await ctx.db
       .query("teamSessions")
-      .filter((q) => q.eq(q.field("teamId"), args.teamId))
+      .withIndex("by_team_id", (q) => q.eq("teamId", args.teamId))
       .collect();
 
     for (const session of sessions) {
@@ -227,14 +319,11 @@ export const adminUpdateTeamPin = mutation({
   },
 });
 
-async function hashPin(pin: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin + "wosh-team-secret-salt");
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
+/**
+ * @deprecated Exposed legacy SHA-256 hasher. Do not use for new code; call
+ * `hashPin` from `pinHash.ts` instead. Kept for any external scripts that
+ * may import it; remove after audit.
+ */
 export async function hashPinPublic(pin: string): Promise<string> {
-  return hashPin(pin);
+  return legacyHashPin(pin);
 }
