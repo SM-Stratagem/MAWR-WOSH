@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { requireRole, STAFF_ROLES, ADMIN_ROLES, getUserByClerkId } from "./authHelpers";
 
 const TEAM_STATUS_TRANSITIONS: Record<string, string[]> = {
@@ -485,29 +486,17 @@ export const createBookingDraft = mutation({
               createdAt: Date.now(),
             });
 
-            // Send notification to team
-            if (best.team.pushToken) {
-              try {
-                const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
-                const dateStr = args.scheduledDate ? new Date(args.scheduledDate).toLocaleDateString() : "Today";
-                const windowLabel = args.scheduledWindow
-                  ? `${args.scheduledWindow} (${dateStr})`
-                  : "Immediate";
-                await fetch(EXPO_PUSH_URL, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    to: best.team.pushToken,
-                    title: "New Booking Assigned!",
-                    body: `${address.formattedAddress} - ${windowLabel}`,
-                    data: { bookingId: bookingId, type: "new_booking" },
-                    sound: "default",
-                  }),
-                });
-              } catch (e) {
-                console.error("[Push] Failed to send notification:", e);
-              }
-            }
+            // Send notification to team — decoupled from this mutation so a
+            // mutation retry doesn't double-fire pushes.
+            await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+              bookingId,
+              event: "new_booking",
+            });
+            // Also notify the customer that a driver is assigned.
+            await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+              bookingId,
+              event: "team_assigned",
+            });
 
             console.log(`[AutoAssign] Assigned ${best.team.name} (${best.distance.toFixed(2)}km, ${best.windowCount} in window) to ${booking.bookingNumber}`);
           } else if (candidateTeams.length > 0) {
@@ -878,31 +867,19 @@ export const adminAssignTeam = mutation({
       createdAt: Date.now(),
     });
 
-    // Send push notification to team if they have a push token
-    if (team.pushToken) {
-      try {
-        const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
-        const dateStr = booking.scheduledDate ? new Date(booking.scheduledDate).toLocaleDateString() : "Today";
-        const windowLabel = booking.scheduledWindow
-          ? `${booking.scheduledWindow} (${dateStr})`
-          : "Immediate";
-
-        await fetch(EXPO_PUSH_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: team.pushToken,
-            title: "New Booking Assigned!",
-            body: `${customer?.name || "Customer"} - ${address?.formattedAddress || "Unknown address"} - ${windowLabel}`,
-            data: { bookingId: args.bookingId, type: "new_booking" },
-            sound: "default",
-          }),
-        });
-        console.log(`[Push] Sent notification to team ${team.name}`);
-      } catch (error) {
-        console.error("[Push] Failed to send notification:", error);
-      }
-    }
+    // Schedule notifications so a mutation retry doesn't double-fire.
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+      bookingId: args.bookingId,
+      event: "new_booking",
+    });
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+      bookingId: args.bookingId,
+      event: "team_assigned",
+    });
+    // Touch customer/address to satisfy unused-binding lint; they remain
+    // referenced for future per-payload customisation.
+    void customer;
+    void address;
   },
 });
 
@@ -1030,23 +1007,10 @@ export const adminAutoReassign = mutation({
       createdAt: Date.now(),
     });
 
-    if (best.team.pushToken) {
-      try {
-        await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: best.team.pushToken,
-            title: "New Booking Assigned!",
-            body: `${address.formattedAddress}`,
-            data: { bookingId: args.bookingId, type: "new_booking" },
-            sound: "default",
-          }),
-        });
-      } catch (e) {
-        console.error("[Push] reassign notify failed", e);
-      }
-    }
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+      bookingId: args.bookingId,
+      event: "team_reassigned",
+    });
 
     return {
       teamId: best.team._id,
@@ -1596,35 +1560,21 @@ export const teamUpdateStatusWithSession = mutation({
       createdAt: Date.now(),
     });
 
-    // Send push notification to customer
-    try {
-      const customer = await ctx.db.get(booking.userId);
-      const team = await ctx.db.get(session.teamId);
-
-      if (customer?.pushToken) {
-        const statusConfig: Record<string, { title: string; body: string }> = {
-          on_the_way: { title: "Team On The Way!", body: `${team?.name || "Your wash team"} is heading to your location` },
-          arrived: { title: "Team Arrived!", body: `${team?.name || "Your wash team"} has arrived at your location` },
-          washing_in_progress: { title: "Washing Started!", body: `${team?.name || "Your wash team"} has started washing your car` },
-          completed: { title: "Wash Complete!", body: `${team?.name || "Your wash team"} has completed your wash!` },
-        };
-
-        const config = statusConfig[args.status] || { title: "Booking Update", body: `Status updated to ${args.status}` };
-
-        await fetch("https://exp.host/--/api/v2/push/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            to: customer.pushToken,
-            title: config.title,
-            body: config.body,
-            data: { bookingId: args.bookingId, type: `status_${args.status}` },
-            sound: "default",
-          }),
-        });
-      }
-    } catch (error) {
-      console.error("[Push] Failed to send customer notification:", error);
+    // Map booking status -> push event and schedule the send. Decoupled from
+    // the mutation so retries don't double-fire and a flaky Expo endpoint
+    // can't roll back the status change.
+    const statusEventMap: Record<string, string> = {
+      on_the_way: "on_the_way",
+      arrived: "arrived",
+      washing_in_progress: "washing_started",
+      completed: "completed",
+    };
+    const event = statusEventMap[args.status];
+    if (event) {
+      await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+        bookingId: args.bookingId,
+        event,
+      });
     }
 
     if (args.status === "completed") {
