@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query, internalMutation } from "./_generated/server";
 import { internal } from "./_generated/api";
+import { Id } from "./_generated/dataModel";
 import { requireRole, STAFF_ROLES, ADMIN_ROLES, getUserByClerkId } from "./authHelpers";
 import { selectClosestAvailableTeam, haversineKm as haversineKmLatLng } from "./teamSelection";
 
@@ -741,34 +742,69 @@ export const adminListBookings = query({
           .take(1000)
       : await ctx.db.query("bookings").order("desc").take(1000);
 
-    const enrichedBookings = await Promise.all(
-      bookings.map(async (booking) => {
-        const user = await ctx.db.get(booking.userId);
-        const address = await ctx.db.get(booking.addressId);
-        const washType = await ctx.db.get(booking.washTypeId);
-        const team = booking.assignedTeamId ? await ctx.db.get(booking.assignedTeamId) : null;
-        const bookingCars = await ctx.db
-          .query("bookingCars")
-          .withIndex("by_booking_id", (q) => q.eq("bookingId", booking._id))
-          .collect();
-        const cars = await Promise.all(bookingCars.map((bc) => ctx.db.get(bc.carId)));
-
-        return {
-          ...booking,
-          user: user ? { _id: user._id, name: user.name, email: user.email, phone: user.phone } : null,
-          address,
-          washType,
-          team,
-          cars: cars.filter(Boolean).map((car: any) => ({
-            _id: car._id,
-            make: car.make,
-            model: car.model,
-            plateNumber: car.plateNumber,
-            plateRegion: car.plateRegion,
-          })),
-        };
-      })
+    // Batch unique-id lookups instead of N×4 sequential fetches.
+    const uniqUserIds = Array.from(new Set(bookings.map((b) => b.userId)));
+    const uniqAddrIds = Array.from(new Set(bookings.map((b) => b.addressId)));
+    const uniqWtIds = Array.from(new Set(bookings.map((b) => b.washTypeId)));
+    const uniqTeamIds = Array.from(
+      new Set(bookings.map((b) => b.assignedTeamId).filter(Boolean) as Id<"teams">[]),
     );
+
+    const [users, addresses, washTypes, teams, bookingCarRowsPerBooking] = await Promise.all([
+      Promise.all(uniqUserIds.map((id) => ctx.db.get(id))),
+      Promise.all(uniqAddrIds.map((id) => ctx.db.get(id))),
+      Promise.all(uniqWtIds.map((id) => ctx.db.get(id))),
+      Promise.all(uniqTeamIds.map((id) => ctx.db.get(id))),
+      Promise.all(
+        bookings.map((b) =>
+          ctx.db
+            .query("bookingCars")
+            .withIndex("by_booking_id", (q) => q.eq("bookingId", b._id))
+            .collect(),
+        ),
+      ),
+    ]);
+
+    const userMap = new Map(users.filter(Boolean).map((u) => [u!._id, u!]));
+    const addrMap = new Map(addresses.filter(Boolean).map((a) => [a!._id, a!]));
+    const wtMap = new Map(washTypes.filter(Boolean).map((w) => [w!._id, w!]));
+    const teamMap = new Map(teams.filter(Boolean).map((t) => [t!._id, t!]));
+
+    // Collect all unique car ids across all bookings, then fetch them once.
+    const allCarIds = Array.from(
+      new Set(bookingCarRowsPerBooking.flatMap((rows) => rows.map((r) => r.carId))),
+    );
+    const allCars = await Promise.all(allCarIds.map((id) => ctx.db.get(id)));
+    const carMap = new Map(allCars.filter(Boolean).map((c) => [c!._id, c!]));
+
+    const enrichedBookings = bookings.map((booking, i) => {
+      const user = userMap.get(booking.userId) ?? null;
+      const address = addrMap.get(booking.addressId) ?? null;
+      const washType = wtMap.get(booking.washTypeId) ?? null;
+      const team = booking.assignedTeamId
+        ? teamMap.get(booking.assignedTeamId) ?? null
+        : null;
+      const cars = bookingCarRowsPerBooking[i]
+        .map((bc) => carMap.get(bc.carId))
+        .filter(Boolean) as any[];
+
+      return {
+        ...booking,
+        user: user
+          ? { _id: user._id, name: user.name, email: user.email, phone: user.phone }
+          : null,
+        address,
+        washType,
+        team,
+        cars: cars.map((car: any) => ({
+          _id: car._id,
+          make: car.make,
+          model: car.model,
+          plateNumber: car.plateNumber,
+          plateRegion: car.plateRegion,
+        })),
+      };
+    });
 
     const filteredBookings = args.searchQuery
       ? enrichedBookings.filter((booking) => {
@@ -1261,53 +1297,81 @@ export const adminDashboardMetrics = query({
       };
     });
 
-    // Recent bookings (last 10)
-    const recentBookings = await Promise.all(
-      bookings
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 10)
-        .map(async (booking) => {
-          const user = await ctx.db.get(booking.userId);
-          const washType = await ctx.db.get(booking.washTypeId);
-          const address = await ctx.db.get(booking.addressId);
+    // Recent bookings (last 10) — batch joins to avoid N×4 sequential fetches.
+    const recent = bookings
+      .slice()
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 10);
 
-          const bookingCars = await ctx.db
+    const recUserIds = Array.from(new Set(recent.map((b) => b.userId)));
+    const recWtIds = Array.from(new Set(recent.map((b) => b.washTypeId)));
+    const recAddrIds = Array.from(new Set(recent.map((b) => b.addressId)));
+
+    const [recUsers, recWashTypes, recAddresses, recBookingCarsPer] = await Promise.all([
+      Promise.all(recUserIds.map((id) => ctx.db.get(id))),
+      Promise.all(recWtIds.map((id) => ctx.db.get(id))),
+      Promise.all(recAddrIds.map((id) => ctx.db.get(id))),
+      Promise.all(
+        recent.map((b) =>
+          ctx.db
             .query("bookingCars")
-            .withIndex("by_booking_id", (q) => q.eq("bookingId", booking._id))
-            .collect();
-          const cars = await Promise.all(bookingCars.map((bc) => ctx.db.get(bc.carId)));
-
-          const userBookings = bookings.filter((b) => b.userId === booking.userId);
-          const userTotalSpend = userBookings
-            .filter((b) => b.paymentStatus === "succeeded")
-            .reduce((sum, b) => sum + b.total, 0);
-
-          return {
-            _id: booking._id,
-            bookingNumber: booking.bookingNumber,
-            status: booking.status,
-            total: booking.total,
-            currency: booking.currency,
-            createdAt: booking.createdAt,
-            user: user
-              ? {
-                  name: user.name,
-                  email: user.email,
-                  phone: user.phone,
-                  totalBookings: userBookings.length,
-                  totalSpend: userTotalSpend,
-                }
-              : null,
-            washType: washType ? { name: washType.name } : null,
-            address: address ? { formattedAddress: address.formattedAddress } : null,
-            cars: cars.filter(Boolean).map((c: any) => ({
-              make: c.make,
-              model: c.model,
-              year: c.year,
-            })),
-          };
-        })
+            .withIndex("by_booking_id", (q) => q.eq("bookingId", b._id))
+            .collect(),
+        ),
+      ),
+    ]);
+    const recUserMap = new Map(recUsers.filter(Boolean).map((u) => [u!._id, u!]));
+    const recWtMap = new Map(recWashTypes.filter(Boolean).map((w) => [w!._id, w!]));
+    const recAddrMap = new Map(recAddresses.filter(Boolean).map((a) => [a!._id, a!]));
+    const recCarIds = Array.from(
+      new Set(recBookingCarsPer.flatMap((rows) => rows.map((r) => r.carId))),
     );
+    const recCars = await Promise.all(recCarIds.map((id) => ctx.db.get(id)));
+    const recCarMap = new Map(recCars.filter(Boolean).map((c) => [c!._id, c!]));
+
+    // Precompute per-user booking + spend aggregates so we don't filter the
+    // full bookings array once per row.
+    const userBookingCount = new Map<string, number>();
+    const userSpend = new Map<string, number>();
+    for (const b of bookings) {
+      userBookingCount.set(b.userId, (userBookingCount.get(b.userId) ?? 0) + 1);
+      if (b.paymentStatus === "succeeded") {
+        userSpend.set(b.userId, (userSpend.get(b.userId) ?? 0) + b.total);
+      }
+    }
+
+    const recentBookings = recent.map((booking, i) => {
+      const user = recUserMap.get(booking.userId) ?? null;
+      const washType = recWtMap.get(booking.washTypeId) ?? null;
+      const address = recAddrMap.get(booking.addressId) ?? null;
+      const cars = recBookingCarsPer[i]
+        .map((bc) => recCarMap.get(bc.carId))
+        .filter(Boolean) as any[];
+      return {
+        _id: booking._id,
+        bookingNumber: booking.bookingNumber,
+        status: booking.status,
+        total: booking.total,
+        currency: booking.currency,
+        createdAt: booking.createdAt,
+        user: user
+          ? {
+              name: user.name,
+              email: user.email,
+              phone: user.phone,
+              totalBookings: userBookingCount.get(booking.userId) ?? 0,
+              totalSpend: userSpend.get(booking.userId) ?? 0,
+            }
+          : null,
+        washType: washType ? { name: washType.name } : null,
+        address: address ? { formattedAddress: address.formattedAddress } : null,
+        cars: cars.map((c: any) => ({
+          make: c.make,
+          model: c.model,
+          year: c.year,
+        })),
+      };
+    });
 
     return {
       totalBookingsToday: todayBookings.length,
@@ -1807,24 +1871,32 @@ export const adminAdvancedAnalytics = query({
       count,
     }));
 
-    const teamUtilization = await Promise.all(
-      teams.filter((t) => t.isActive).map(async (team) => {
-        const teamBookings = bookings.filter((b) => b.assignedTeamId === team._id);
-        const completedByTeam = teamBookings.filter((b) => b.status === "completed");
-        const revenueByTeam = completedByTeam
-          .filter((b) => b.paymentStatus === "succeeded")
-          .reduce((sum, b) => sum + b.total, 0);
-
-        return {
-          teamId: team._id,
-          teamName: team.name,
-          status: team.status,
-          totalAssigned: teamBookings.length,
-          totalCompleted: completedByTeam.length,
-          revenue: revenueByTeam,
-        };
-      })
-    );
+    // Build per-team aggregates in a single pass over bookings so the per-team
+    // mapping below is O(teams) instead of O(teams * bookings).
+    const teamAssigned = new Map<string, number>();
+    const teamCompleted = new Map<string, number>();
+    const teamRevenue = new Map<string, number>();
+    for (const b of bookings) {
+      if (!b.assignedTeamId) continue;
+      const key = b.assignedTeamId;
+      teamAssigned.set(key, (teamAssigned.get(key) ?? 0) + 1);
+      if (b.status === "completed") {
+        teamCompleted.set(key, (teamCompleted.get(key) ?? 0) + 1);
+        if (b.paymentStatus === "succeeded") {
+          teamRevenue.set(key, (teamRevenue.get(key) ?? 0) + b.total);
+        }
+      }
+    }
+    const teamUtilization = teams
+      .filter((t) => t.isActive)
+      .map((team) => ({
+        teamId: team._id,
+        teamName: team.name,
+        status: team.status,
+        totalAssigned: teamAssigned.get(team._id) ?? 0,
+        totalCompleted: teamCompleted.get(team._id) ?? 0,
+        revenue: teamRevenue.get(team._id) ?? 0,
+      }));
 
     const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
     const recentCustomers = customers.filter((c) => c.createdAt >= thirtyDaysAgo);
@@ -1864,36 +1936,64 @@ export const adminAdvancedAnalytics = query({
         newUsersLast30Days: recentCustomers.length,
         returningUsersLast30Days: returningCustomers.length,
       },
-      topCustomers: await Promise.all(
-        customers
+      topCustomers: (() => {
+        // Build per-user aggregates in a single pass so the per-customer map
+        // below is O(customers) instead of O(customers * bookings).
+        const perUser = new Map<
+          string,
+          {
+            total: number;
+            paid: number;
+            spend: number;
+            lastBookingAt: number | null;
+            lastBookingStatus: string | null;
+          }
+        >();
+        for (const b of bookings) {
+          const cur =
+            perUser.get(b.userId) ??
+            { total: 0, paid: 0, spend: 0, lastBookingAt: null, lastBookingStatus: null };
+          cur.total++;
+          if (b.paymentStatus === "succeeded") {
+            cur.paid++;
+            cur.spend += b.total;
+          }
+          if (cur.lastBookingAt == null || b.createdAt > cur.lastBookingAt) {
+            cur.lastBookingAt = b.createdAt;
+            cur.lastBookingStatus = b.status;
+          }
+          perUser.set(b.userId, cur);
+        }
+        const activeSubByUser = new Map<string, (typeof subscriptions)[number]>();
+        for (const s of subscriptions) {
+          if (s.status === "active" && !activeSubByUser.has(s.userId)) {
+            activeSubByUser.set(s.userId, s);
+          }
+        }
+        return customers
           .map((customer) => {
-            const customerBookings = bookings.filter((b) => b.userId === customer._id);
-            const customerPaidBookings = customerBookings.filter((b) => b.paymentStatus === "succeeded");
-            const totalSpend = customerPaidBookings.reduce((sum, b) => sum + b.total, 0);
-            const lastBooking = customerBookings.sort((a, b) => b.createdAt - a.createdAt)[0];
-            const hasSubscription = subscriptionUserIds.has(customer._id);
-            const activeSubscription = subscriptions.find(
-              (s) => s.userId === customer._id && s.status === "active"
-            );
-
+            const agg =
+              perUser.get(customer._id) ??
+              { total: 0, paid: 0, spend: 0, lastBookingAt: null, lastBookingStatus: null };
+            const activeSubscription = activeSubByUser.get(customer._id);
             return {
               _id: customer._id,
               name: customer.name,
               email: customer.email,
               phone: customer.phone,
               createdAt: customer.createdAt,
-              totalBookings: customerBookings.length,
-              completedBookings: customerPaidBookings.length,
-              totalSpend,
-              hasSubscription,
+              totalBookings: agg.total,
+              completedBookings: agg.paid,
+              totalSpend: agg.spend,
+              hasSubscription: subscriptionUserIds.has(customer._id),
               subscriptionPlan: activeSubscription?.frequency || null,
-              lastBookingAt: lastBooking?.createdAt || null,
-              lastBookingStatus: lastBooking?.status || null,
+              lastBookingAt: agg.lastBookingAt,
+              lastBookingStatus: agg.lastBookingStatus,
             };
           })
           .sort((a, b) => b.totalSpend - a.totalSpend)
-          .slice(0, 20)
-      ),
+          .slice(0, 20);
+      })(),
     };
   },
 });
