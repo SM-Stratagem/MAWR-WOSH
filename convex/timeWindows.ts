@@ -11,6 +11,30 @@ const MAX_BOOKINGS_PER_WINDOW = 3;
 const WINDOW_DURATION_HOURS = 4;
 const WASH_DURATION_MINS = 35;
 
+// Status set used for window-capacity counting. We hit each status index in
+// parallel so we never see a "canceled"/"completed"/"draft" booking that we'd
+// just discard. Splitting like this is still cheap because each per-status
+// list is small relative to the full table.
+const CAPACITY_STATUSES = [
+  "confirmed",
+  "team_assigned",
+  "on_the_way",
+  "arrived",
+  "washing_in_progress",
+] as const;
+
+async function fetchCapacityBookings(ctx: any) {
+  const lists = await Promise.all(
+    CAPACITY_STATUSES.map((status) =>
+      ctx.db
+        .query("bookings")
+        .withIndex("by_status", (q: any) => q.eq("status", status))
+        .take(500),
+    ),
+  );
+  return lists.flat();
+}
+
 export const getAvailableWindows = query({
   args: {
     date: v.number(),
@@ -25,8 +49,7 @@ export const getAvailableWindows = query({
     const windows = ["morning", "afternoon", "evening"] as const;
     const result: Record<string, { available: boolean; bookingsCount: number; label: string }> = {};
 
-    // Fetch all bookings and filter manually to handle null scheduledFor
-    const allBookings = await ctx.db.query("bookings").take(500);
+    const allBookings = await fetchCapacityBookings(ctx);
 
     for (const window of windows) {
       const windowStart = new Date(startOfDay);
@@ -35,19 +58,13 @@ export const getAvailableWindows = query({
       windowEnd.setHours(WINDOW_CONFIG[window].end, 0, 0, 0);
 
       // Filter bookings manually to handle null scheduledFor
-      const bookingsInWindow = allBookings.filter((b) => {
+      const confirmedOrAssigned = allBookings.filter((b) => {
         if (!b.scheduledFor) return false;
-        if (b.status === "canceled" || b.status === "completed") return false;
-        // Check if scheduledFor falls within the window and matches the date
-        return b.scheduledFor >= windowStart.getTime() && 
+        return b.scheduledFor >= windowStart.getTime() &&
                b.scheduledFor < windowEnd.getTime() &&
                b.scheduledFor >= startOfDay.getTime() &&
                b.scheduledFor < endOfDay.getTime();
       });
-
-      const confirmedOrAssigned = bookingsInWindow.filter((b) =>
-        ["confirmed", "team_assigned", "on_the_way", "arrived", "washing_in_progress"].includes(b.status)
-      );
 
       result[window] = {
         available: confirmedOrAssigned.length < MAX_BOOKINGS_PER_WINDOW,
@@ -69,8 +86,7 @@ export const getWindowsForDateRange = query({
     const windows = ["morning", "afternoon", "evening"] as const;
     const result: Record<string, Record<string, { available: boolean; bookingsCount: number }>> = {};
 
-    // Fetch all bookings once
-    const allBookings = await ctx.db.query("bookings").take(500);
+    const allBookings = await fetchCapacityBookings(ctx);
 
     const current = new Date(args.startDate);
     while (current <= new Date(args.endDate)) {
@@ -88,19 +104,13 @@ export const getWindowsForDateRange = query({
         const windowEnd = new Date(startOfDay);
         windowEnd.setHours(WINDOW_CONFIG[window].end, 0, 0, 0);
 
-        // Filter manually to handle null scheduledFor
-        const bookingsInWindow = allBookings.filter((b) => {
+        const confirmedOrAssigned = allBookings.filter((b) => {
           if (!b.scheduledFor) return false;
-          if (b.status === "canceled" || b.status === "completed") return false;
-          return b.scheduledFor >= windowStart.getTime() && 
+          return b.scheduledFor >= windowStart.getTime() &&
                  b.scheduledFor < windowEnd.getTime() &&
                  b.scheduledFor >= startOfDay.getTime() &&
                  b.scheduledFor < endOfDay.getTime();
         });
-
-        const confirmedOrAssigned = bookingsInWindow.filter((b) =>
-          ["confirmed", "team_assigned", "on_the_way", "arrived", "washing_in_progress"].includes(b.status)
-        );
 
         result[dateKey][window] = {
           available: confirmedOrAssigned.length < MAX_BOOKINGS_PER_WINDOW,
