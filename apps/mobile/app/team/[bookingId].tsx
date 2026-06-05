@@ -1,15 +1,25 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, Linking } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, Image, Linking, Platform } from "react-native";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { Id } from "../../convex/_generated/dataModel";
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { colors, spacing, borderRadius } from "../../constants/theme";
 import { useTeamStore } from "../../lib/teamStore";
 import * as ImagePicker from "expo-image-picker";
 import { convex } from "../../lib/convex";
 import UAELicensePlate from "../../components/UAELicensePlate";
 import { getUserFacingErrorMessage } from "../../lib/errors";
+import {
+  enqueue as enqueueUpload,
+  dequeue as dequeueUpload,
+  bumpAttempts,
+  loadQueue,
+  makeQueueItemId,
+  queueForBooking,
+  MAX_ATTEMPTS,
+  type QueueItem,
+} from "../../lib/uploadQueue";
 
 const STATUS_COLORS: Record<string, string> = {
   confirmed: colors.primary,
@@ -61,8 +71,75 @@ export default function TeamBookingDetailScreen() {
 
   const updateStatus = useMutation(api.bookings.teamUpdateStatusWithSession);
   const addPhoto = useMutation(api.photos.addPhotoUrl);
+  const rejectBooking = useMutation(api.bookings.teamRejectBookingWithSession);
+  const markCarComplete = useMutation(api.bookings.teamMarkCarComplete);
+  const unmarkCarComplete = useMutation(api.bookings.teamUnmarkCarComplete);
 
   const [takingPhoto, setTakingPhoto] = useState<string | null>(null);
+  const [pendingUploads, setPendingUploads] = useState<QueueItem[]>([]);
+
+  // Try to upload a queued item directly via convex storage. Returns true on success.
+  const tryUploadItem = useCallback(async (item: QueueItem): Promise<boolean> => {
+    try {
+      const response = await fetch(item.uri);
+      const blob = await response.blob();
+      const uploadUrl: string = await convex.mutation(api.photos.generateUploadUrl as any);
+      const uploadResult = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": item.mimeType || "image/jpeg" },
+        body: blob,
+      });
+      if (!uploadResult.ok) return false;
+      const { storageId } = await uploadResult.json();
+      await convex.mutation(api.photos.savePhoto as any, {
+        bookingId: item.bookingId as Id<"bookings">,
+        type: item.type,
+        storageId,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Periodic retry: every 30s, walk the queue and try each item. Drop on success
+  // or after MAX_ATTEMPTS. Updates local state so the UI banner reflects reality.
+  useEffect(() => {
+    let stopped = false;
+
+    const refresh = async () => {
+      if (typedBookingId) {
+        const items = await queueForBooking(typedBookingId);
+        if (!stopped) setPendingUploads(items);
+      }
+    };
+
+    const runOnce = async () => {
+      const all = await loadQueue();
+      for (const item of all) {
+        const ok = await tryUploadItem(item);
+        if (ok) {
+          await dequeueUpload(item.id);
+        } else {
+          const attempts = await bumpAttempts(item.id);
+          if (attempts >= MAX_ATTEMPTS) {
+            await dequeueUpload(item.id);
+          }
+        }
+      }
+      await refresh();
+    };
+
+    void refresh();
+    const interval = setInterval(() => {
+      void runOnce();
+    }, 30000);
+
+    return () => {
+      stopped = true;
+      clearInterval(interval);
+    };
+  }, [typedBookingId, tryUploadItem]);
 
   const isLoading = booking === undefined;
 
@@ -88,32 +165,130 @@ export default function TeamBookingDetailScreen() {
       }
 
       const asset = result.assets[0];
-      const response = await fetch(asset.uri);
-      const blob = await response.blob();
 
-      const uploadUrl: string = await convex.mutation(api.photos.generateUploadUrl as any);
-      
-      const uploadResult = await fetch(uploadUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": asset.mimeType || "image/jpeg",
-        },
-        body: blob,
-      });
+      // Try upload directly first. On any failure, enqueue for background retry
+      // so the driver can keep working even when the network is flaky.
+      try {
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
 
-      const { storageId } = await uploadResult.json();
+        const uploadUrl: string = await convex.mutation(api.photos.generateUploadUrl as any);
 
-      await convex.mutation(api.photos.savePhoto as any, {
-        bookingId: typedBookingId!,
-        type,
-        storageId,
-      });
+        const uploadResult = await fetch(uploadUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": asset.mimeType || "image/jpeg",
+          },
+          body: blob,
+        });
 
-      Alert.alert("Success", "Photo uploaded successfully");
+        if (!uploadResult.ok) throw new Error(`Upload failed (${uploadResult.status})`);
+        const { storageId } = await uploadResult.json();
+
+        await convex.mutation(api.photos.savePhoto as any, {
+          bookingId: typedBookingId!,
+          type,
+          storageId,
+        });
+
+        Alert.alert("Success", "Photo uploaded successfully");
+      } catch (uploadErr) {
+        // Persist to retry queue. The 30s interval effect will keep trying.
+        await enqueueUpload({
+          id: makeQueueItemId(),
+          uri: asset.uri,
+          bookingId: typedBookingId!,
+          type,
+          mimeType: asset.mimeType,
+        });
+        if (typedBookingId) {
+          setPendingUploads(await queueForBooking(typedBookingId));
+        }
+        Alert.alert(
+          "Upload queued",
+          "We couldn't reach the server. The photo will be uploaded automatically when you're back online.",
+        );
+      }
     } catch (error: any) {
       Alert.alert("Could not upload photo", getUserFacingErrorMessage(error, "Failed to upload photo. Please try again."));
     } finally {
       setTakingPhoto(null);
+    }
+  };
+
+  const presetRejectReasons = ["Vehicle issue", "Address unreachable", "Personal emergency"];
+
+  const performReject = async (reason: string) => {
+    if (!session?.sessionId || !typedBookingId) return;
+    try {
+      await rejectBooking({
+        sessionId: session.sessionId,
+        bookingId: typedBookingId,
+        reason,
+      });
+      router.replace("/team");
+    } catch (error: any) {
+      Alert.alert(
+        "Could not release booking",
+        getUserFacingErrorMessage(error, "Failed to release booking. Please try again."),
+      );
+    }
+  };
+
+  const handleReject = () => {
+    const buttons: any[] = [{ text: "Cancel", style: "cancel" as const }];
+    for (const r of presetRejectReasons) {
+      buttons.push({ text: r, onPress: () => performReject(r) });
+    }
+    // "Other (specify)" — iOS supports Alert.prompt for free text.
+    buttons.push({
+      text: "Other (specify)",
+      onPress: () => {
+        if (Platform.OS === "ios" && (Alert as any).prompt) {
+          (Alert as any).prompt(
+            "Reason",
+            "Briefly describe why you cannot take this booking.",
+            [
+              { text: "Cancel", style: "cancel" },
+              {
+                text: "Submit",
+                onPress: (text: string | undefined) => {
+                  const reason = (text || "").trim();
+                  if (!reason) return;
+                  performReject(reason);
+                },
+              },
+            ],
+            "plain-text",
+          );
+        } else {
+          // Android fallback — no free-text Alert primitive available without
+          // a custom modal. Use a generic reason rather than blocking the flow.
+          performReject("Other");
+        }
+      },
+    });
+
+    Alert.alert(
+      "Unable to take this booking?",
+      "It will go back to dispatch and we'll try another team.",
+      buttons,
+    );
+  };
+
+  const handleToggleCarComplete = async (bookingCarId: Id<"bookingCars">, complete: boolean) => {
+    if (!session?.sessionId) return;
+    try {
+      if (complete) {
+        await markCarComplete({ sessionId: session.sessionId, bookingCarId });
+      } else {
+        await unmarkCarComplete({ sessionId: session.sessionId, bookingCarId });
+      }
+    } catch (error: any) {
+      Alert.alert(
+        "Could not update car",
+        getUserFacingErrorMessage(error, "Failed to update car status."),
+      );
     }
   };
 
@@ -133,6 +308,17 @@ export default function TeamBookingDetailScreen() {
     }
     if (newStatus === "completed" && completionPhotos.length < 1) {
       Alert.alert("Photo Required", "Please take a completion photo before marking as completed");
+      return;
+    }
+
+    // Block forward progress while photos for this booking are still in the
+    // retry queue — otherwise the server-side photo-required check would fail
+    // anyway, but with a less helpful error.
+    if ((newStatus === "arrived" || newStatus === "completed") && pendingUploads.length > 0) {
+      Alert.alert(
+        "Uploads pending",
+        `There are ${pendingUploads.length} photo(s) still uploading. Please wait until they finish.`,
+      );
       return;
     }
 
@@ -261,23 +447,54 @@ export default function TeamBookingDetailScreen() {
           {booking.cars && booking.cars.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Vehicle{booking.cars.length > 1 ? "s" : ""}</Text>
-              {booking.cars.map((car: any, index: number) => (
-                <View key={car?._id || index} style={styles.carCard}>
-                  <Text style={styles.carName}>
-                    {car?.make} {car?.model} {car?.year}
-                  </Text>
-                  {car?.plateNumber && (
-                    <View style={styles.carPlateContainer}>
-                      <UAELicensePlate
-                        city={car.plateRegion || "dubai"}
-                        code={car.plateNumber.split(' ')[0] || ""}
-                        number={car.plateNumber.split(' ')[1] || car.plateNumber}
-                        style={styles.carPlateComponent}
-                      />
+              {booking.cars.length > 1 && (
+                <Text style={styles.photoHint}>
+                  Tap each car as you finish it. All cars must be marked done before you can complete the job.
+                </Text>
+              )}
+              {booking.cars.map((car: any, index: number) => {
+                const isDone = !!car?.completedAt;
+                const canToggle =
+                  booking.status === "washing_in_progress" || booking.status === "arrived";
+                return (
+                  <View key={car?._id || index} style={[styles.carCard, isDone && styles.carCardDone]}>
+                    <View style={styles.carCardHeader}>
+                      <Text style={styles.carName}>
+                        {car?.nickname || `${car?.make ?? ""} ${car?.model ?? ""}`} {car?.year ?? ""}
+                      </Text>
+                      {car?.bookingCarId && (
+                        <TouchableOpacity
+                          style={[styles.carDoneToggle, isDone && styles.carDoneToggleActive]}
+                          disabled={!canToggle}
+                          onPress={() => handleToggleCarComplete(car.bookingCarId, !isDone)}
+                        >
+                          <Text style={[styles.carDoneToggleText, isDone && styles.carDoneToggleTextActive]}>
+                            {isDone ? "✓ Done" : canToggle ? "Mark done" : "Pending"}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
-                  )}
-                </View>
-              ))}
+                    {car?.plateNumber && (
+                      <View style={styles.carPlateContainer}>
+                        <UAELicensePlate
+                          city={car.plateRegion || "dubai"}
+                          code={car.plateNumber.split(' ')[0] || ""}
+                          number={car.plateNumber.split(' ')[1] || car.plateNumber}
+                          style={styles.carPlateComponent}
+                        />
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {pendingUploads.length > 0 && (
+            <View style={styles.pendingBanner}>
+              <Text style={styles.pendingBannerText}>
+                ⏳ {pendingUploads.length} photo upload(s) pending — we'll retry automatically.
+              </Text>
             </View>
           )}
 
@@ -387,6 +604,12 @@ export default function TeamBookingDetailScreen() {
               </TouchableOpacity>
             ))}
           </View>
+        )}
+
+        {booking.status === "team_assigned" && (
+          <TouchableOpacity style={styles.rejectButton} onPress={handleReject}>
+            <Text style={styles.rejectButtonText}>Unable to take this booking</Text>
+          </TouchableOpacity>
         )}
 
         {booking.status === "completed" && (
@@ -646,5 +869,60 @@ const styles = StyleSheet.create({
     height: 60,
     borderRadius: borderRadius.md,
     marginRight: spacing.sm,
+  },
+  carCardDone: {
+    borderWidth: 1,
+    borderColor: colors.success,
+    backgroundColor: colors.success + "10",
+  },
+  carCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  carDoneToggle: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surface_container_low,
+    borderWidth: 1,
+    borderColor: colors.text_secondary,
+  },
+  carDoneToggleActive: {
+    backgroundColor: colors.success,
+    borderColor: colors.success,
+  },
+  carDoneToggleText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.text_secondary,
+  },
+  carDoneToggleTextActive: {
+    color: colors.on_primary,
+  },
+  pendingBanner: {
+    backgroundColor: colors.warning + "20",
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  pendingBannerText: {
+    fontSize: 13,
+    color: colors.warning,
+    fontWeight: "600",
+  },
+  rejectButton: {
+    backgroundColor: colors.danger + "15",
+    borderWidth: 1,
+    borderColor: colors.danger,
+    paddingVertical: spacing.md,
+    borderRadius: borderRadius.lg,
+    alignItems: "center",
+    marginBottom: spacing.lg,
+  },
+  rejectButtonText: {
+    color: colors.danger,
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
