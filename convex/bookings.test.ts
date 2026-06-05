@@ -158,6 +158,87 @@ test("createSubscription honours configured subscription_discount_pct setting", 
   expect(s!.discountPercent).toBe(20);
 });
 
+test("teamRejectBookingWithSession resets booking + frees team", async () => {
+  const t = convexTest(schema, modules);
+  const { booking, teamA, sessionId } = await t.run(async (ctx) => {
+    const u = await ctx.db.insert("users", {
+      clerkId: "c", email: "c@x", name: "C", role: "customer",
+      isActive: true, createdAt: 0, lastSeenAt: 0,
+    });
+    const a = await ctx.db.insert("addresses", {
+      userId: u, formattedAddress: "X", latitude: 0, longitude: 0,
+      isDefault: true, createdAt: 0, updatedAt: 0,
+    });
+    const w = await ctx.db.insert("washTypes", {
+      key: "basic", name: "Basic", description: "", basePrice: 50,
+      currency: "AED", durationMins: 30, isActive: true, sortOrder: 1,
+    });
+    const teamA = await ctx.db.insert("teams", {
+      name: "A", status: "busy", isActive: true,
+    });
+    const booking = await ctx.db.insert("bookings", {
+      bookingNumber: "B1", userId: u, addressId: a, washTypeId: w,
+      status: "team_assigned", assignedTeamId: teamA,
+      selectedCarCount: 1, subtotal: 50, serviceFee: 0, discount: 0, total: 50,
+      currency: "AED", paymentStatus: "succeeded",
+      createdAt: 0, updatedAt: 0,
+    });
+    const sessionId = "sess-A";
+    await ctx.db.insert("teamSessions", {
+      teamId: teamA, sessionId, expiresAt: Date.now() + 60_000,
+    });
+    return { booking, teamA, sessionId };
+  });
+
+  await t.mutation(api.bookings.teamRejectBookingWithSession, {
+    sessionId, bookingId: booking, reason: "tire blown",
+  });
+
+  const b = await t.run(async (ctx) => await ctx.db.get(booking));
+  const team = await t.run(async (ctx) => await ctx.db.get(teamA));
+  expect(b!.status).toBe("confirmed");
+  expect(b!.assignedTeamId).toBeUndefined();
+  expect(b!.rejectionReason).toBe("tire blown");
+  expect(team!.status).toBe("available");
+});
+
+test("teamRejectBookingWithSession refuses after starting", async () => {
+  const t = convexTest(schema, modules);
+  const { booking, sessionId } = await t.run(async (ctx) => {
+    const u = await ctx.db.insert("users", {
+      clerkId: "cr", email: "cr@x", name: "C", role: "customer",
+      isActive: true, createdAt: 0, lastSeenAt: 0,
+    });
+    const a = await ctx.db.insert("addresses", {
+      userId: u, formattedAddress: "X", latitude: 0, longitude: 0,
+      isDefault: true, createdAt: 0, updatedAt: 0,
+    });
+    const w = await ctx.db.insert("washTypes", {
+      key: "basic", name: "Basic", description: "", basePrice: 50,
+      currency: "AED", durationMins: 30, isActive: true, sortOrder: 1,
+    });
+    const teamA = await ctx.db.insert("teams", {
+      name: "A", status: "busy", isActive: true,
+    });
+    const booking = await ctx.db.insert("bookings", {
+      bookingNumber: "B2", userId: u, addressId: a, washTypeId: w,
+      status: "on_the_way", assignedTeamId: teamA,
+      selectedCarCount: 1, subtotal: 50, serviceFee: 0, discount: 0, total: 50,
+      currency: "AED", paymentStatus: "succeeded",
+      createdAt: 0, updatedAt: 0,
+    });
+    const sessionId = "sess-B";
+    await ctx.db.insert("teamSessions", {
+      teamId: teamA, sessionId, expiresAt: Date.now() + 60_000,
+    });
+    return { booking, sessionId };
+  });
+
+  await expect(t.mutation(api.bookings.teamRejectBookingWithSession, {
+    sessionId, bookingId: booking, reason: "nope",
+  })).rejects.toThrow(/after starting/);
+});
+
 test("team selection prefers team without ±1h overlap", async () => {
   const t = convexTest(schema, modules);
   // Two teams. teamBusy already has a booking at the same scheduledFor (overlap).

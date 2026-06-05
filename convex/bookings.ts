@@ -1688,6 +1688,54 @@ export const teamUpdateStatusWithSession = mutation({
   },
 });
 
+export const teamRejectBookingWithSession = mutation({
+  args: {
+    sessionId: v.string(),
+    bookingId: v.id("bookings"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("teamSessions")
+      .withIndex("by_session_id", (q) => q.eq("sessionId", args.sessionId))
+      .first();
+    if (!session || session.expiresAt < Date.now()) throw new Error("Unauthorized");
+
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking || booking.assignedTeamId !== session.teamId) {
+      throw new Error("Not your booking");
+    }
+    if (booking.status !== "team_assigned") {
+      throw new Error("Cannot reject after starting");
+    }
+
+    await ctx.db.patch(args.bookingId, {
+      status: "confirmed",
+      assignedTeamId: undefined,
+      rejectionReason: args.reason,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.db.patch(session.teamId, { status: "available" });
+
+    await ctx.db.insert("activityLogs", {
+      actorRole: "team",
+      entityType: "booking",
+      entityId: args.bookingId.toString(),
+      action: "team_rejected",
+      payload: args.reason,
+      createdAt: Date.now(),
+    });
+
+    await ctx.scheduler.runAfter(0, internal.notifications.notifyBookingEvent, {
+      bookingId: args.bookingId,
+      event: "team_rejected",
+    });
+
+    return { ok: true };
+  },
+});
+
 export const adminAdvancedAnalytics = query({
   args: {},
   handler: async (ctx) => {
