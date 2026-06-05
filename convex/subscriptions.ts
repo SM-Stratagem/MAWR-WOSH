@@ -270,6 +270,32 @@ export const adminListSubscriptions = query({
   },
 });
 
+export const adminGetSubscriptionDetail = query({
+  args: { subscriptionId: v.id("subscriptions") },
+  handler: async (ctx, args) => {
+    await requireRole(ctx, STAFF_ROLES);
+    const sub = await ctx.db.get(args.subscriptionId);
+    if (!sub) return null;
+    const user = await ctx.db.get(sub.userId);
+    const address = await ctx.db.get(sub.addressId);
+    const washType = await ctx.db.get(sub.washTypeId);
+    const cars = await Promise.all(sub.selectedCarIds.map((id) => ctx.db.get(id)));
+    const recentBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_subscription_id", (q) => q.eq("subscriptionId", sub._id))
+      .order("desc")
+      .take(20);
+    return {
+      sub,
+      user,
+      address,
+      washType,
+      cars: cars.filter((c) => c !== null),
+      recentBookings,
+    };
+  },
+});
+
 export const adminUpdateSubscription = mutation({
   args: {
     subscriptionId: v.id("subscriptions"),
