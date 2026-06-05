@@ -8,7 +8,7 @@ import { SignInButton, UserButton } from "@clerk/nextjs";
 import {
   BarChart3, Calendar, Users, Truck, Map, Settings,
   Menu, LogOut, CreditCard, RotateCcw, Zap, Shield, HeartPulse,
-  MapPin, Package,
+  MapPin, Package, History,
 } from "lucide-react";
 
 const navItems = [
@@ -24,6 +24,7 @@ const navItems = [
   { href: "/dashboard/services", label: "Services & Pricing", icon: Zap },
   { href: "/dashboard/zones", label: "Zones", icon: MapPin },
   { href: "/dashboard/staff", label: "Staff & Roles", icon: Shield },
+  { href: "/dashboard/activity", label: "Activity", icon: History },
   { href: "/dashboard/health", label: "System Health", icon: HeartPulse },
   { href: "/dashboard/settings", label: "Dispatch Settings", icon: Settings },
 ];
